@@ -1,0 +1,105 @@
+name: release-prq
+
+on:
+  push:
+    tags:
+      - 'prq/v*.*.*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Parse version
+        run: echo "VERSION=${GITHUB_REF_NAME#prq/v}" >> $GITHUB_ENV
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist/arm64 dist/amd64
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+            -ldflags "-s -w -X main.version=$VERSION" \
+            -o dist/arm64/prq ./cmd/prq
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build \
+            -ldflags "-s -w -X main.version=$VERSION" \
+            -o dist/amd64/prq ./cmd/prq
+
+      - name: Package archives
+        run: |
+          (cd dist/arm64 && tar czf ../prq_${VERSION}_darwin_arm64.tar.gz prq)
+          (cd dist/amd64 && tar czf ../prq_${VERSION}_darwin_amd64.tar.gz prq)
+          cd dist
+          shasum -a 256 prq_${VERSION}_darwin_arm64.tar.gz prq_${VERSION}_darwin_amd64.tar.gz \
+            > prq_${VERSION}_checksums.txt
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PREV_TAG=$(git tag --list 'prq/v*' --sort=-version:refname | sed -n '2p')
+          NOTES=$(git log ${PREV_TAG:+$PREV_TAG..HEAD} --oneline -- cmd/prq/ prq/ internal/ui/)
+          if [ -z "$NOTES" ]; then
+            NOTES="Release prq v${VERSION}"
+          fi
+          NOTES=$(echo "$NOTES" | sed 's/^[a-f0-9]* /- /')
+          gh release create "$GITHUB_REF_NAME" \
+            --title "prq v${VERSION}" \
+            --notes "$NOTES" \
+            dist/prq_${VERSION}_darwin_arm64.tar.gz \
+            dist/prq_${VERSION}_darwin_amd64.tar.gz \
+            dist/prq_${VERSION}_checksums.txt
+
+      - name: Update Homebrew tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          SHA_ARM=$(shasum -a 256 dist/prq_${VERSION}_darwin_arm64.tar.gz | awk '{print $1}')
+          SHA_AMD=$(shasum -a 256 dist/prq_${VERSION}_darwin_amd64.tar.gz | awk '{print $1}')
+
+          cat > /tmp/prq.rb << CASK
+          cask "prq" do
+            version "${VERSION}"
+
+            if Hardware::CPU.arm?
+              sha256 "${SHA_ARM}"
+              url "https://github.com/kimoofey/tui/releases/download/prq/v#{version}/prq_#{version}_darwin_arm64.tar.gz",
+                  verified: "github.com/kimoofey/tui/"
+            else
+              sha256 "${SHA_AMD}"
+              url "https://github.com/kimoofey/tui/releases/download/prq/v#{version}/prq_#{version}_darwin_amd64.tar.gz",
+                  verified: "github.com/kimoofey/tui/"
+            end
+
+            name "prq"
+            desc "Interactive TUI for GitHub PR review queue"
+            homepage "https://github.com/kimoofey/tui"
+
+            depends_on formula: "gh"
+
+            binary "prq"
+
+            postflight do
+              system_command "/usr/bin/xattr",
+                             args: ["-dr", "com.apple.quarantine", "#{staged_path}/prq"]
+            end
+          end
+          CASK
+
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/kimoofey/homebrew-tap.git /tmp/tap
+          mkdir -p /tmp/tap/Casks
+          cp /tmp/prq.rb /tmp/tap/Casks/prq.rb
+          cd /tmp/tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/prq.rb
+          git commit -m "prq ${VERSION}"
+          git push

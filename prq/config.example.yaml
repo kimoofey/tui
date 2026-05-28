@@ -1,0 +1,36 @@
+# prq configuration
+# Copy this file to ~/.config/prq/config.yaml and edit it.
+# Run 'prq --init' to scaffold this automatically.
+
+# Repos to voluntarily watch for PRs to review.
+# These are repos where you have no formal review assignment — prq will
+# surface open PRs you haven't reviewed yet so you can jump in.
+# PRs already in your GitHub review queue (direct/team) are deduplicated and
+# won't appear twice even if their repo is also listed here.
+watch_repos:
+  - "your-org/your-repo"
+  # - "your-org/another-repo"
+
+# How far back to look for open PRs across all sources (in days).
+days_ago: 30
+
+# Skip PRs that already have this many approvals.
+min_approvals: 2
+
+# Skip PRs you've already left any review on.
+skip_already_reviewed: true
+
+# Skip PRs authored by bots (Dependabot, github-actions, etc.).
+skip_bots: true
+
+# Terminal to open for opencode PR reviews (o key).
+# Leave empty for auto-detection via $TERM_PROGRAM.
+# Recognised values: terminal (macOS Terminal.app), ghostty, iterm2.
+# Anything else is treated as a custom launch prefix, e.g. "kitty --".
+# Has no effect if opencode is not installed.
+opencode_terminal: ""
+
+# GraphQL pagination settings (rarely need changing).
+# page_size: 100
+# max_reviewers: 20
+# max_pages: 3
