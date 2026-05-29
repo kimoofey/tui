@@ -2,6 +2,8 @@
 
 Interactive TUI for browsing and managing your OpenCode sessions. Lists all sessions from the local OpenCode database with cost, directory, and timestamps — and lets you open, delete, and clean up directly from the table.
 
+![ocm screenshot](../screenshots/assets/ocm.png)
+
 ## Requirements
 
 OpenCode installed and at least one session created. The database is read from:
@@ -23,6 +25,8 @@ go install github.com/kimoofey/tui/cmd/ocm@latest
 ```
 
 ## Usage
+
+![ocm demo](../screenshots/assets/ocm.gif)
 
 ```
 ocm [OPTIONS]

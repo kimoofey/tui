@@ -2,6 +2,8 @@
 
 Interactive TUI for your GitHub PR review queue. Surfaces PRs waiting for your attention across three sources and presents them in a keyboard-driven table.
 
+![prq screenshot](../screenshots/assets/prq.png)
+
 | Badge      | Source                                                 |
 | ---------- | ------------------------------------------------------ |
 | `[direct]` | PRs where you were directly requested to review        |
@@ -42,6 +44,8 @@ watch_repos:
 `watch_repos` is optional — prq always fetches your full GitHub review queue regardless.
 
 ## Usage
+
+![prq demo](../screenshots/assets/prq.gif)
 
 ```
 prq [OPTIONS]
