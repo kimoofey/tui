@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,6 +43,24 @@ jobs:
           shasum -a 256 ocm_${VERSION}_darwin_arm64.tar.gz ocm_${VERSION}_darwin_amd64.tar.gz \
             > ocm_${VERSION}_checksums.txt
 
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign artifacts with cosign
+        run: |
+          cosign sign-blob --yes \
+            --bundle dist/ocm_${VERSION}_darwin_arm64.tar.gz.bundle \
+            dist/ocm_${VERSION}_darwin_arm64.tar.gz
+          cosign sign-blob --yes \
+            --bundle dist/ocm_${VERSION}_darwin_amd64.tar.gz.bundle \
+            dist/ocm_${VERSION}_darwin_amd64.tar.gz
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/ocm_${{ env.VERSION }}_darwin_arm64.tar.gz
+            dist/ocm_${{ env.VERSION }}_darwin_amd64.tar.gz
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -51,12 +71,33 @@ jobs:
             NOTES="Release ocm v${VERSION}"
           fi
           NOTES=$(echo "$NOTES" | sed 's/^[a-f0-9]* /- /')
+          VERIFY=$(cat <<'EOF'
+
+          ## Verify
+
+          Install [cosign](https://github.com/sigstore/cosign) and run:
+          ```
+          cosign verify-blob --bundle ocm_VERSION_darwin_arm64.tar.gz.bundle \
+            --certificate-identity-regexp 'https://github.com/kimoofey/tui/' \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            ocm_VERSION_darwin_arm64.tar.gz
+          ```
+
+          Or use the [GitHub CLI](https://cli.github.com):
+          ```
+          gh attestation verify ocm_VERSION_darwin_arm64.tar.gz -o kimoofey
+          ```
+          EOF
+          )
+          VERIFY="${VERIFY//VERSION/$VERSION}"
           gh release create "$GITHUB_REF_NAME" \
             --title "ocm v${VERSION}" \
-            --notes "$NOTES" \
+            --notes "${NOTES}${VERIFY}" \
             dist/ocm_${VERSION}_darwin_arm64.tar.gz \
             dist/ocm_${VERSION}_darwin_amd64.tar.gz \
-            dist/ocm_${VERSION}_checksums.txt
+            dist/ocm_${VERSION}_checksums.txt \
+            dist/ocm_${VERSION}_darwin_arm64.tar.gz.bundle \
+            dist/ocm_${VERSION}_darwin_amd64.tar.gz.bundle
 
       - name: Update Homebrew tap
         env:
