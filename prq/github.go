@@ -1,3 +1,5 @@
+//go:build !mock
+
 package prq
 
 import (
@@ -11,61 +13,6 @@ import (
 	"sync"
 	"time"
 )
-
-// DebugEnabled gates all log.Printf calls. Set by the --debug flag in cmd/prq.
-var DebugEnabled bool
-
-// Bucket identifies which source a PR came from.
-type Bucket string
-
-const (
-	BucketDirect Bucket = "direct"
-	BucketTeam   Bucket = "team"
-	BucketWatch  Bucket = "watch"
-	BucketMine   Bucket = "mine"
-)
-
-// PullRequest is the clean, unified PR representation used by the TUI.
-type PullRequest struct {
-	Number         int
-	Title          string
-	URL            string
-	Author         string
-	Repo           string
-	CreatedAt      time.Time
-	Approvals      int
-	Bucket         Bucket
-	IsDraft        bool
-	ReviewDecision string // "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | ""
-}
-
-// Age returns a human-readable age string relative to now.
-func (pr PullRequest) Age() string {
-	days := int(time.Since(pr.CreatedAt).Hours() / 24)
-	switch days {
-	case 0:
-		return "today"
-	case 1:
-		return "1d ago"
-	default:
-		return fmt.Sprintf("%dd ago", days)
-	}
-}
-
-// RepoShort returns the repo name without the org prefix.
-func (pr PullRequest) RepoShort() string {
-	if i := strings.LastIndex(pr.Repo, "/"); i >= 0 {
-		return pr.Repo[i+1:]
-	}
-	return pr.Repo
-}
-
-// FetchResult is returned as a Bubble Tea message when FetchAll completes.
-type FetchResult struct {
-	ReviewPRs []PullRequest
-	MyPRs     []PullRequest
-	Err       error
-}
 
 type ghAuthor struct {
 	TypeName string `json:"__typename"`
@@ -456,13 +403,15 @@ var (
 	cachedUserMu sync.Mutex
 )
 
+const cmdTimeout = 30 * time.Second
+
 func getUser() (string, error) {
 	cachedUserMu.Lock()
 	defer cachedUserMu.Unlock()
 	if cachedUser != "" {
 		return cachedUser, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "gh", "api", "user", "-q", ".login").Output()
 	if err != nil {
@@ -477,7 +426,7 @@ func getUser() (string, error) {
 }
 
 func runGraphQL(args []string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "gh", append([]string{"api", "graphql"}, args...)...)
 	out, err := cmd.Output()

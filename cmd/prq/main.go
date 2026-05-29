@@ -11,6 +11,7 @@ import (
 	"runtime"
 
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/kimoofey/tui/internal/ui"
 	"github.com/kimoofey/tui/prq"
 )

@@ -6,7 +6,8 @@ import (
 
 	"charm.land/bubbles/v2/table"
 	"charm.land/lipgloss/v2"
-	ui "github.com/kimoofey/tui/internal/ui"
+
+	"github.com/kimoofey/tui/internal/ui"
 )
 
 const (
@@ -15,6 +16,8 @@ const (
 	widthAuthor    = 27
 	widthAge       = 7
 	widthApprovals = 9
+
+	minTitleWidth = 12
 
 	numCols = 6
 
@@ -25,10 +28,7 @@ const (
 )
 
 func titleWidth(termWidth int) int {
-	w := termWidth - tableFixedWidth - 2
-	if w < 12 {
-		w = 12
-	}
+	w := max(termWidth-tableFixedWidth-2, minTitleWidth)
 	return w
 }
 
@@ -85,10 +85,7 @@ const (
 )
 
 func myTitleWidth(termWidth int) int {
-	w := termWidth - myTableFixedWidth - 2
-	if w < 12 {
-		w = 12
-	}
+	w := max(termWidth-myTableFixedWidth-2, minTitleWidth)
 	return w
 }
 
