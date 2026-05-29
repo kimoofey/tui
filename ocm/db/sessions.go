@@ -35,20 +35,20 @@ func DBPath() (string, error) {
 // from SQLite page metrics. used = (page_count - freelist_count) * page_size,
 // total = page_count * page_size.
 func DBStats(dbPath string) (used, total int64, err error) {
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
+	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
 	if err != nil {
 		return 0, 0, fmt.Errorf("open db: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() { _ = conn.Close() }()
 
 	var pageSize, pageCount, freelistCount int64
-	if err := db.QueryRow(`PRAGMA page_size`).Scan(&pageSize); err != nil {
+	if err := conn.QueryRow(`PRAGMA page_size`).Scan(&pageSize); err != nil {
 		return 0, 0, fmt.Errorf("pragma page_size: %w", err)
 	}
-	if err := db.QueryRow(`PRAGMA page_count`).Scan(&pageCount); err != nil {
+	if err := conn.QueryRow(`PRAGMA page_count`).Scan(&pageCount); err != nil {
 		return 0, 0, fmt.Errorf("pragma page_count: %w", err)
 	}
-	if err := db.QueryRow(`PRAGMA freelist_count`).Scan(&freelistCount); err != nil {
+	if err := conn.QueryRow(`PRAGMA freelist_count`).Scan(&freelistCount); err != nil {
 		return 0, 0, fmt.Errorf("pragma freelist_count: %w", err)
 	}
 
@@ -60,25 +60,25 @@ func DBStats(dbPath string) (used, total int64, err error) {
 // VacuumDB runs VACUUM on the database to reclaim free pages, then returns
 // updated used and total byte sizes.
 func VacuumDB(dbPath string) (used, total int64, err error) {
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?mode=rw")
+	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=rw")
 	if err != nil {
 		return 0, 0, fmt.Errorf("open db: %w", err)
 	}
 	defer func() {
-		if cerr := db.Close(); cerr != nil && err == nil {
+		if cerr := conn.Close(); cerr != nil && err == nil {
 			err = cerr
 		}
 	}()
 
-	if _, err := db.Exec(`VACUUM`); err != nil {
+	if _, err := conn.Exec(`VACUUM`); err != nil {
 		return 0, 0, fmt.Errorf("vacuum: %w", err)
 	}
 
 	var pageSize, pageCount int64
-	if err := db.QueryRow(`PRAGMA page_size`).Scan(&pageSize); err != nil {
+	if err := conn.QueryRow(`PRAGMA page_size`).Scan(&pageSize); err != nil {
 		return 0, 0, fmt.Errorf("pragma page_size: %w", err)
 	}
-	if err := db.QueryRow(`PRAGMA page_count`).Scan(&pageCount); err != nil {
+	if err := conn.QueryRow(`PRAGMA page_count`).Scan(&pageCount); err != nil {
 		return 0, 0, fmt.Errorf("pragma page_count: %w", err)
 	}
 
@@ -91,11 +91,11 @@ func VacuumDB(dbPath string) (used, total int64, err error) {
 // last-updated descending. If rootOnly is true, only top-level sessions
 // (parent_id IS NULL) are returned.
 func LoadSessions(dbPath string, rootOnly bool) ([]Session, error) {
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
+	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() { _ = conn.Close() }()
 
 	q := `SELECT id, title, directory, time_created, time_updated, cost
 		FROM session
@@ -107,7 +107,7 @@ func LoadSessions(dbPath string, rootOnly bool) ([]Session, error) {
 		ORDER BY time_updated DESC`
 	}
 
-	rows, err := db.Query(q)
+	rows, err := conn.Query(q)
 	if err != nil {
 		return nil, fmt.Errorf("query sessions: %w", err)
 	}
@@ -137,13 +137,13 @@ func diffDir(dbPath string) string {
 
 // loadSessionIDs returns a set of all session IDs currently in the database.
 func loadSessionIDs(dbPath string) (map[string]struct{}, error) {
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
+	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() { _ = conn.Close() }()
 
-	rows, err := db.Query(`SELECT id FROM session`)
+	rows, err := conn.Query(`SELECT id FROM session`)
 	if err != nil {
 		return nil, fmt.Errorf("query session ids: %w", err)
 	}
@@ -249,14 +249,14 @@ func PruneOrphans(dbPath string) (count int, bytes int64, err error) {
 // SessionCount returns the total number of sessions in the database,
 // regardless of any filter applied to LoadSessions.
 func SessionCount(dbPath string) (int, error) {
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
+	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
 	if err != nil {
 		return 0, fmt.Errorf("open db: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() { _ = conn.Close() }()
 
 	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM session`).Scan(&count); err != nil {
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM session`).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count sessions: %w", err)
 	}
 	return count, nil

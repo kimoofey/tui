@@ -1,21 +1,16 @@
 package ocm
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	ui "github.com/kimoofey/tui/internal/ui"
+
+	"github.com/kimoofey/tui/internal/ui"
 	"github.com/kimoofey/tui/ocm/db"
 )
 
@@ -89,6 +84,9 @@ const (
 	// layoutOverheadBase is the fixed chrome rows: title(1) + border-top(1) + border-bottom(1).
 	// table.SetHeight includes the table header row internally.
 	layoutOverheadBase = 3
+
+	minReclaimableBytes int64 = 1 << 20
+	mouseScrollLines          = 3
 )
 
 var (
@@ -196,16 +194,25 @@ func (m Model) currentOverhead() int {
 	return layoutOverheadBase + 1
 }
 
+type Options struct {
+	Sessions    []db.Session
+	TotalCount  int
+	DBUsed      int64
+	DBTotal     int64
+	OrphanCount int
+	OrphanBytes int64
+	DBPath      string
+	RootOnly    bool
+}
+
 // New creates a Model populated with the given sessions.
-func New(sessions []db.Session, totalSessions int, dbUsed, dbTotal int64, orphanCount int, orphanBytes int64, dbPath string, rootOnly bool, termWidth, termHeight int) Model {
+func New(opts Options, termWidth, termHeight int) Model {
 	selected := make(map[string]bool)
 	homeDir, _ := os.UserHomeDir()
-	cols, rows := buildTable(sessions, selected, termWidth-borderWidth, homeDir)
+	cols, rows := buildTable(opts.Sessions, selected, termWidth-borderWidth, homeDir)
 
-	initialTableHeight := termHeight - (layoutOverheadBase + 1) // short-mode overhead until first WindowSizeMsg
-	if initialTableHeight < 1 {
-		initialTableHeight = 1
-	}
+	initialTableHeight := max(termHeight-(layoutOverheadBase+1), 1)
+
 	t := table.New(
 		table.WithColumns(cols),
 		table.WithRows(rows),
@@ -232,15 +239,15 @@ func New(sessions []db.Session, totalSessions int, dbUsed, dbTotal int64, orphan
 
 	return Model{
 		table:         t,
-		sessions:      sessions,
+		sessions:      opts.Sessions,
 		selected:      selected,
-		totalSessions: totalSessions,
-		dbUsed:        dbUsed,
-		dbTotal:       dbTotal,
-		orphanCount:   orphanCount,
-		orphanBytes:   orphanBytes,
-		dbPath:        dbPath,
-		rootOnly:      rootOnly,
+		totalSessions: opts.TotalCount,
+		dbUsed:        opts.DBUsed,
+		dbTotal:       opts.DBTotal,
+		orphanCount:   opts.OrphanCount,
+		orphanBytes:   opts.OrphanBytes,
+		dbPath:        opts.DBPath,
+		rootOnly:      opts.RootOnly,
 		homeDir:       homeDir,
 		width:         termWidth,
 		height:        termHeight,
@@ -254,18 +261,9 @@ func New(sessions []db.Session, totalSessions int, dbUsed, dbTotal int64, orphan
 // columns, with directory getting dirFrac of that flexible budget.
 func buildTable(sessions []db.Session, selected map[string]bool, termWidth int, homeDir string) ([]table.Column, []table.Row) {
 	fixedUsed := colWidthMarker + colWidthCost + colWidthDate*2 + tableCellPad
-	flex := termWidth - fixedUsed
-	if flex < minDirWidth+minTitleWidth {
-		flex = minDirWidth + minTitleWidth
-	}
-	dirWidth := int(float64(flex) * dirFrac)
-	if dirWidth < minDirWidth {
-		dirWidth = minDirWidth
-	}
-	titleWidth := flex - dirWidth
-	if titleWidth < minTitleWidth {
-		titleWidth = minTitleWidth
-	}
+	flex := max(termWidth-fixedUsed, minDirWidth+minTitleWidth)
+	dirWidth := max(int(float64(flex)*dirFrac), minDirWidth)
+	titleWidth := max(flex-dirWidth, minTitleWidth)
 
 	cols := []table.Column{
 		{Title: " ", Width: colWidthMarker},
@@ -318,9 +316,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.Button {
 		case tea.MouseWheelUp:
-			m.table.MoveUp(3)
+			m.table.MoveUp(mouseScrollLines)
 		case tea.MouseWheelDown:
-			m.table.MoveDown(3)
+			m.table.MoveDown(mouseScrollLines)
 		}
 		return m, nil // already handled — don't forward to table.Update below
 
@@ -329,6 +327,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.bulkDeleting || m.vacuuming || m.pruning {
 			return m, nil
 		}
+
+		m.status = ""
 
 		// During delete confirmation, lock all input — no table forwarding.
 		if m.deletePhase == deletePending {
@@ -341,10 +341,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.bulkDeleting = true
 					m.bulkDeleteCount = len(ids)
-					m.status = ""
 					return m, bulkDeleteSessions(ids, m.dbPath, m.rootOnly)
 				}
-				m.status = ""
 				return m, deleteSession(m.sessions[m.deleteTarget].ID, m.dbPath)
 			}
 			m.deletePhase = deleteNone
@@ -356,7 +354,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "v" {
 				m.vacuumPhase = false
 				m.vacuuming = true
-				m.status = ""
 				return m, vacuumDB(m.dbPath, m.dbTotal)
 			}
 			m.vacuumPhase = false
@@ -368,7 +365,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "p" {
 				m.prunePhase = false
 				m.pruning = true
-				m.status = ""
 				return m, pruneOrphans(m.dbPath)
 			}
 			m.prunePhase = false
@@ -398,7 +394,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			sid := m.sessions[idx].ID
-			m.status = ""
 			return m, openSession(sid)
 		case "d":
 			if len(m.sessions) == 0 {
@@ -417,8 +412,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil // don't forward to table
 		case "v":
-			reclaimable := m.dbTotal - m.dbUsed
-			if reclaimable < 1<<20 { // < 1 MB — nothing worth reclaiming
+			if m.dbTotal-m.dbUsed < minReclaimableBytes {
 				m.status = "nothing to vacuum"
 				m.statusOK = false
 				return m, nil
@@ -468,7 +462,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					break
 				}
 			}
-			m.totalSessions = msg.newTotal
+			if msg.newTotal > 0 {
+				m.totalSessions = msg.newTotal
+			} else {
+				m.totalSessions--
+			}
 			m.rebuildRows()
 			if m.table.Cursor() >= len(m.sessions) && len(m.sessions) > 0 {
 				m.table.SetCursor(len(m.sessions) - 1)
@@ -634,10 +632,12 @@ func (m Model) renderTitleBar() string {
 	}
 
 	var sizeLabel string
-	if m.dbUsed == m.dbTotal {
-		sizeLabel = formatSize(m.dbUsed)
+	usedStr := formatSize(m.dbUsed)
+	totalStr := formatSize(m.dbTotal)
+	if usedStr == totalStr {
+		sizeLabel = totalStr
 	} else {
-		sizeLabel = formatSize(m.dbUsed) + " / " + formatSize(m.dbTotal)
+		sizeLabel = usedStr + " / " + totalStr
 	}
 	right := sessionLabel + "  ·  " + sizeLabel
 
@@ -647,157 +647,4 @@ func (m Model) renderTitleBar() string {
 	innerWidth := m.width - 2
 	rightAligned := lipgloss.PlaceHorizontal(innerWidth-lipgloss.Width(left), lipgloss.Right, styledRight)
 	return titleBarStyle().Render(styledLeft + rightAligned)
-}
-
-// formatCost returns a compact cost string: "-" for zero, "$0.99" otherwise.
-func formatCost(cost float64) string {
-	if cost == 0 {
-		return "-"
-	}
-	return fmt.Sprintf("$%.2f", cost)
-}
-
-// formatSize returns a human-readable file size string (KB / MB / GB).
-func formatSize(bytes int64) string {
-	switch {
-	case bytes >= 1<<30:
-		return fmt.Sprintf("%.1f GB", float64(bytes)/float64(1<<30))
-	case bytes >= 1<<20:
-		return fmt.Sprintf("%.0f MB", float64(bytes)/float64(1<<20))
-	case bytes >= 1<<10:
-		return fmt.Sprintf("%.0f KB", float64(bytes)/float64(1<<10))
-	default:
-		return fmt.Sprintf("%d B", bytes)
-	}
-}
-
-// bulkDeleteSessions deletes each session via the opencode CLI sequentially,
-// then reloads the session list and total count.
-func bulkDeleteSessions(ids []string, dbPath string, rootOnly bool) tea.Cmd {
-	return func() tea.Msg {
-		var deleteErrs []string
-		for _, id := range ids {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			if err := exec.CommandContext(ctx, "opencode", "session", "delete", id).Run(); err != nil {
-				deleteErrs = append(deleteErrs, id+": "+err.Error())
-			}
-			cancel()
-		}
-		sessions, err := db.LoadSessions(dbPath, rootOnly)
-		if err != nil {
-			return bulkDeletedMsg{count: len(ids), err: err}
-		}
-		total, _ := db.SessionCount(dbPath)
-		if len(deleteErrs) > 0 {
-			return bulkDeletedMsg{
-				count:    len(ids) - len(deleteErrs),
-				sessions: sessions,
-				newTotal: total,
-				err:      errors.New(strings.Join(deleteErrs, "; ")),
-			}
-		}
-		return bulkDeletedMsg{count: len(ids), sessions: sessions, newTotal: total}
-	}
-}
-
-// deleteSession returns a tea.Cmd that runs `opencode session delete <id>`,
-// then re-queries the real session count and sends deletedMsg back.
-func deleteSession(sessionID, dbPath string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, "opencode", "session", "delete", sessionID)
-		if err := cmd.Run(); err != nil {
-			return deletedMsg{sessionID: sessionID, err: err}
-		}
-		total, _ := db.SessionCount(dbPath)
-		return deletedMsg{sessionID: sessionID, newTotal: total}
-	}
-}
-
-// openSession returns a tea.Cmd that opens the given session in a new terminal
-// window, auto-detecting the running terminal via $TERM_PROGRAM.
-func openSession(sessionID string) tea.Cmd {
-	return func() tea.Msg {
-		term := ui.ResolveTerminal("")
-		shellCmd := "opencode -s " + sessionID // session IDs are UUIDs — shell-safe
-
-		var cmd *exec.Cmd
-		switch term {
-		case "terminal":
-			script := `tell application "Terminal" to do script "` + shellCmd + `"`
-			cmd = exec.Command("osascript",
-				"-e", script,
-				"-e", `tell application "Terminal" to activate`,
-			)
-		case "ghostty":
-			cmd = exec.Command("open", "-na", "Ghostty",
-				"--args", "--initial-command", shellCmd,
-			)
-		case "iterm2":
-			script := `tell application "iTerm2" to create window with default profile command "` + shellCmd + `"`
-			cmd = exec.Command("osascript", "-e", script)
-		default:
-			parts := strings.Fields(term)
-			parts = append(parts, "opencode", "-s", sessionID)
-			cmd = exec.Command(parts[0], parts[1:]...)
-		}
-
-		cmd.Env = os.Environ()
-		if err := cmd.Start(); err != nil {
-			return openedMsg{sessionID: sessionID, err: err}
-		}
-		return openedMsg{sessionID: sessionID}
-	}
-}
-
-// pruneOrphans returns a tea.Cmd that deletes orphaned session-diff files.
-func pruneOrphans(dbPath string) tea.Cmd {
-	return func() tea.Msg {
-		count, bytes, err := db.PruneOrphans(dbPath)
-		return prunedMsg{count: count, bytes: bytes, err: err}
-	}
-}
-
-// vacuumDB returns a tea.Cmd that runs VACUUM on the database, then returns
-// updated page stats. beforeTotal is captured to display the "X → Y" message.
-func vacuumDB(dbPath string, beforeTotal int64) tea.Cmd {
-	return func() tea.Msg {
-		used, total, err := db.VacuumDB(dbPath)
-		return vacuumedMsg{dbUsed: used, dbTotal: total, beforeTotal: beforeTotal, err: err}
-	}
-}
-
-// shortenHome replaces the user's home directory prefix with "~".
-func shortenHome(path, home string) string {
-	if home == "" {
-		return path
-	}
-	if path == home {
-		return "~"
-	}
-	rel, err := filepath.Rel(home, path)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return path
-	}
-	return "~/" + rel
-}
-
-// formatDate returns a human-friendly date string.
-//   - < 1 hour  → "42m ago"
-//   - < 24 hours → "3h ago"
-//   - < 7 days  → "3d ago"
-//   - otherwise → "Jan 02 2006"
-func formatDate(t time.Time) string {
-	d := time.Since(t)
-	switch {
-	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
-	case d < 7*24*time.Hour:
-		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
-	default:
-		return t.Format("Jan 02 2006")
-	}
 }
