@@ -31,7 +31,11 @@ type PullRequest struct {
 }
 
 func (pr PullRequest) Age() string {
-	days := int(time.Since(pr.CreatedAt).Hours() / 24)
+	return pr.age(time.Now())
+}
+
+func (pr PullRequest) age(now time.Time) string {
+	days := int(now.Sub(pr.CreatedAt).Hours() / 24)
 	switch days {
 	case 0:
 		return "today"

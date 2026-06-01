@@ -52,7 +52,7 @@ func bucketLabel(b Bucket) string {
 	case BucketWatch:
 		return "[watch] "
 	default:
-		return fmt.Sprintf("[%-6s]", b)
+		return fmt.Sprintf("%-8s", "["+string(b)+"]")
 	}
 }
 

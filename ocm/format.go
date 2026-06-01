@@ -42,7 +42,11 @@ func shortenHome(path, home string) string {
 }
 
 func formatDate(t time.Time) string {
-	d := time.Since(t)
+	return formatDateRelativeTo(t, time.Now())
+}
+
+func formatDateRelativeTo(t time.Time, now time.Time) string {
+	d := now.Sub(t)
 	switch {
 	case d < time.Hour:
 		return fmt.Sprintf("%dm ago", int(d.Minutes()))

@@ -5,7 +5,7 @@ PRQ_MOCK := $(BIN)/prq-mock
 OCM_MOCK := $(BIN)/ocm-mock
 SCREENSHOTS_DIR := screenshots
 
-.PHONY: all build prq ocm lint clean install screenshots
+.PHONY: all build prq ocm lint test clean install screenshots
 
 all: build
 
@@ -19,6 +19,9 @@ ocm:
 
 lint:
 	golangci-lint run ./...
+
+test:
+	go test ./...
 
 install:
 	go install ./cmd/prq ./cmd/ocm
