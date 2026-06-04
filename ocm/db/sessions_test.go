@@ -2,8 +2,10 @@ package db
 
 import (
 	"database/sql"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -21,7 +23,11 @@ func createTestDB(t *testing.T, sessions []Session) string {
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("failed to close connection: %v", err)
+		}
+	}()
 
 	_, err = conn.Exec(`CREATE TABLE session (
 		id TEXT PRIMARY KEY,
@@ -229,4 +235,86 @@ func TestOrphanStats_WithOrphans(t *testing.T) {
 	if bytes == 0 {
 		t.Error("bytes = 0; want > 0")
 	}
+}
+
+func TestPeriodCost(t *testing.T) {
+	dbPath := createTestDB(t, testSessions)
+
+	conn, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("failed to close connection: %v", err)
+		}
+	}()
+
+	_, err = conn.Exec(`CREATE TABLE message (
+		id TEXT PRIMARY KEY,
+		session_id TEXT NOT NULL,
+		time_created INTEGER NOT NULL,
+		time_updated INTEGER NOT NULL,
+		data TEXT NOT NULL
+	)`)
+	if err != nil {
+		t.Fatalf("create message table: %v", err)
+	}
+
+	now := time.Date(2026, 6, 10, 15, 30, 0, 0, time.UTC)
+
+	insertMsg := func(id, sessionID string, ts time.Time, cost float64) {
+		t.Helper()
+		json := `{"cost":` + formatFloat(cost) + `}`
+		_, insErr := conn.Exec(
+			`INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?,?,?,?,?)`,
+			id, sessionID, ts.UnixMilli(), ts.UnixMilli(), json,
+		)
+		if insErr != nil {
+			t.Fatalf("insert message %s: %v", id, insErr)
+		}
+	}
+
+	// In June month/year (outside current week) and root session.
+	insertMsg("m1", "sess-1", time.Date(2026, 6, 2, 9, 0, 0, 0, time.UTC), 1.10)
+	// In June week/month/year and root session.
+	insertMsg("m2", "sess-1", time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC), 0.40)
+	// In June month/year but outside current week.
+	insertMsg("m3", "sess-2", time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC), 2.00)
+	// In year but before June.
+	insertMsg("m4", "sess-2", time.Date(2026, 3, 10, 8, 0, 0, 0, time.UTC), 3.00)
+	// Last year.
+	insertMsg("m5", "sess-2", time.Date(2025, 12, 31, 23, 0, 0, 0, time.UTC), 4.00)
+
+	monthStart := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	weekStart := time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC).UnixMilli()
+	yearStart := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+
+	month, err := PeriodCost(dbPath, monthStart, now.UnixMilli())
+	if err != nil {
+		t.Fatalf("PeriodCost(month): %v", err)
+	}
+	if math.Abs(month-3.50) > 1e-9 {
+		t.Errorf("month cost = %.2f; want 3.50", month)
+	}
+
+	week, err := PeriodCost(dbPath, weekStart, now.UnixMilli())
+	if err != nil {
+		t.Fatalf("PeriodCost(week): %v", err)
+	}
+	if math.Abs(week-0.40) > 1e-9 {
+		t.Errorf("week cost = %.2f; want 0.40", week)
+	}
+
+	year, err := PeriodCost(dbPath, yearStart, now.UnixMilli())
+	if err != nil {
+		t.Fatalf("PeriodCost(year): %v", err)
+	}
+	if math.Abs(year-6.50) > 1e-9 {
+		t.Errorf("year cost = %.2f; want 6.50", year)
+	}
+}
+
+func formatFloat(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
 }

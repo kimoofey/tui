@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -16,6 +17,7 @@ var version = "dev"
 
 func main() {
 	sessionsOnly := flag.Bool("sessions", false, "show only top-level sessions, hide subagent workflows")
+	costPeriodFlag := flag.String("cost-period", "", "show cost stats for period: week|month|year")
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -24,7 +26,18 @@ func main() {
 		os.Exit(0)
 	}
 
-	opts, err := loadData(*sessionsOnly)
+	var err error
+	var costPeriod ocm.CostPeriod
+	var opts ocm.Options
+	if strings.TrimSpace(*costPeriodFlag) != "" {
+		costPeriod, err = ocm.ParseCostPeriod(*costPeriodFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ocm: %v\n", err)
+			os.Exit(2)
+		}
+	}
+
+	opts, err = loadData(*sessionsOnly, costPeriod)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ocm: %v\n", err)
 		os.Exit(1)

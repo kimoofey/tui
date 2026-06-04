@@ -32,6 +32,7 @@ go install github.com/kimoofey/tui/cmd/ocm@latest
 ocm [OPTIONS]
 
   --sessions    Show only top-level sessions, hide subagent workflows
+  --cost-period Show period cost in title bar: week|month|year
   --version     Print version and exit
 ```
 

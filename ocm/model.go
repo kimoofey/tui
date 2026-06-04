@@ -156,6 +156,8 @@ type Model struct {
 	totalSessions   int
 	dbUsed          int64
 	dbTotal         int64
+	costPeriod      CostPeriod
+	periodCost      float64
 	dbPath          string
 	rootOnly        bool
 	homeDir         string
@@ -199,6 +201,8 @@ type Options struct {
 	TotalCount  int
 	DBUsed      int64
 	DBTotal     int64
+	CostPeriod  CostPeriod
+	PeriodCost  float64
 	OrphanCount int
 	OrphanBytes int64
 	DBPath      string
@@ -244,6 +248,8 @@ func New(opts Options, termWidth, termHeight int) Model {
 		totalSessions: opts.TotalCount,
 		dbUsed:        opts.DBUsed,
 		dbTotal:       opts.DBTotal,
+		costPeriod:    opts.CostPeriod,
+		periodCost:    opts.PeriodCost,
 		orphanCount:   opts.OrphanCount,
 		orphanBytes:   opts.OrphanBytes,
 		dbPath:        opts.DBPath,
@@ -640,6 +646,9 @@ func (m Model) renderTitleBar() string {
 		sizeLabel = usedStr + " / " + totalStr
 	}
 	right := sessionLabel + "  ·  " + sizeLabel
+	if m.costPeriod != "" {
+		right += "  ·  " + string(m.costPeriod) + ": " + fmt.Sprintf("$%.2f", m.periodCost)
+	}
 
 	styledLeft := lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true).Render(left)
 	styledRight := lipgloss.NewStyle().Foreground(ui.ColorText).Render(right)

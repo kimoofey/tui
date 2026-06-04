@@ -261,3 +261,22 @@ func SessionCount(dbPath string) (int, error) {
 	}
 	return count, nil
 }
+
+// PeriodCost returns summed message-level costs in [startMs, endMs).
+func PeriodCost(dbPath string, startMs, endMs int64) (float64, error) {
+	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
+	if err != nil {
+		return 0, fmt.Errorf("open db: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	q := `SELECT COALESCE(SUM(CAST(json_extract(m.data, '$.cost') AS REAL)), 0)
+		FROM message m
+		WHERE m.time_created >= ? AND m.time_created < ?`
+
+	var total float64
+	if err := conn.QueryRow(q, startMs, endMs).Scan(&total); err != nil {
+		return 0, fmt.Errorf("sum period cost: %w", err)
+	}
+	return total, nil
+}

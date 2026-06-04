@@ -11,7 +11,7 @@ import (
 
 var mockDataNow = time.Now()
 
-func loadData(sessionsOnly bool) (ocm.Options, error) {
+func loadData(sessionsOnly bool, costPeriod ocm.CostPeriod) (ocm.Options, error) {
 	sessions := []db.Session{
 		{
 			ID:        "aabbcc11-0001-0001-0001-000000000001",
@@ -84,6 +84,8 @@ func loadData(sessionsOnly bool) (ocm.Options, error) {
 		TotalCount:  len(sessions),
 		DBUsed:      2_621_440,
 		DBTotal:     4_194_304,
+		CostPeriod:  costPeriod,
+		PeriodCost:  2.51,
 		OrphanCount: 3,
 		OrphanBytes: 81_920,
 		DBPath:      "/mock/opencode.db",
