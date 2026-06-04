@@ -38,3 +38,20 @@ func vacuumDB(_ string, beforeTotal int64) tea.Cmd {
 		return vacuumedMsg{dbUsed: compacted, dbTotal: compacted, beforeTotal: beforeTotal}
 	}
 }
+
+func reloadData(_ string, _ bool, costPeriod CostPeriod) tea.Cmd {
+	return func() tea.Msg {
+		msg := reloadedMsg{
+			sessions:    []db.Session{},
+			newTotal:    0,
+			dbUsed:      2_621_440,
+			dbTotal:     4_194_304,
+			orphanCount: 3,
+			orphanBytes: 81_920,
+		}
+		if costPeriod != "" {
+			msg.periodCost = 2.51
+		}
+		return msg
+	}
+}

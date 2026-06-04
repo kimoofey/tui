@@ -5,6 +5,7 @@ package ocm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -103,5 +104,48 @@ func vacuumDB(dbPath string, beforeTotal int64) tea.Cmd {
 	return func() tea.Msg {
 		used, total, err := db.VacuumDB(dbPath)
 		return vacuumedMsg{dbUsed: used, dbTotal: total, beforeTotal: beforeTotal, err: err}
+	}
+}
+
+func reloadData(dbPath string, rootOnly bool, costPeriod CostPeriod) tea.Cmd {
+	return func() tea.Msg {
+		sessions, err := db.LoadSessions(dbPath, rootOnly)
+		if err != nil {
+			return reloadedMsg{err: fmt.Errorf("loading sessions: %w", err)}
+		}
+
+		totalCount, err := db.SessionCount(dbPath)
+		if err != nil {
+			return reloadedMsg{err: fmt.Errorf("counting sessions: %w", err)}
+		}
+
+		dbUsed, dbTotal, err := db.DBStats(dbPath)
+		if err != nil {
+			return reloadedMsg{err: fmt.Errorf("reading db stats: %w", err)}
+		}
+
+		orphanCount, orphanBytes, _ := db.OrphanStats(dbPath)
+
+		var periodCost float64
+		if costPeriod != "" {
+			start, end, err := CostPeriodBounds(costPeriod, time.Now())
+			if err != nil {
+				return reloadedMsg{err: fmt.Errorf("computing period bounds (%s): %w", costPeriod, err)}
+			}
+			periodCost, err = db.PeriodCost(dbPath, start.UnixMilli(), end.UnixMilli())
+			if err != nil {
+				return reloadedMsg{err: fmt.Errorf("reading period cost (%s): %w", costPeriod, err)}
+			}
+		}
+
+		return reloadedMsg{
+			sessions:    sessions,
+			newTotal:    totalCount,
+			dbUsed:      dbUsed,
+			dbTotal:     dbTotal,
+			orphanCount: orphanCount,
+			orphanBytes: orphanBytes,
+			periodCost:  periodCost,
+		}
 	}
 }

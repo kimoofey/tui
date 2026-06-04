@@ -55,6 +55,7 @@ ocm [OPTIONS]
 | `PgUp/b` `PgDn/f` | Page up / down                                                          |
 | `Space`           | Mark / unmark row for bulk action                                       |
 | `Enter`           | Open session in OpenCode                                                |
+| `r`               | Reload sessions and stats from the database                             |
 | `d`               | Delete session (or all marked) — press `d` again to confirm             |
 | `v`               | Vacuum database — reclaims free pages (skipped if < 1 MB reclaimable)   |
 | `p`               | Prune orphaned diff files — removes leftover files for deleted sessions |

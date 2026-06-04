@@ -23,6 +23,7 @@ type keyMap struct {
 	Space  key.Binding
 	Esc    key.Binding
 	Enter  key.Binding
+	Reload key.Binding
 	Delete key.Binding
 	Vacuum key.Binding
 	Prune  key.Binding
@@ -31,13 +32,13 @@ type keyMap struct {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Enter, k.Space, k.Delete, k.Help, k.Quit}
+	return []key.Binding{k.Enter, k.Space, k.Reload, k.Delete, k.Help, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PgUp, k.PgDn},
-		{k.Enter, k.Space, k.Esc, k.Delete},
+		{k.Enter, k.Space, k.Esc, k.Reload, k.Delete},
 		{k.Vacuum, k.Prune, k.Help, k.Quit},
 	}
 }
@@ -51,6 +52,7 @@ var defaultKeys = keyMap{
 	Space:  key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "mark")),
 	Esc:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
 	Enter:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+	Reload: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reload")),
 	Delete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 	Vacuum: key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "vacuum db")),
 	Prune:  key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prune orphans")),
@@ -140,6 +142,18 @@ type bulkDeletedMsg struct {
 	err      error
 }
 
+// reloadedMsg is sent back after a full data reload completes.
+type reloadedMsg struct {
+	sessions    []db.Session
+	newTotal    int
+	dbUsed      int64
+	dbTotal     int64
+	orphanCount int
+	orphanBytes int64
+	periodCost  float64
+	err         error
+}
+
 // deleteState tracks the two-press delete confirmation flow.
 type deleteState int
 
@@ -169,6 +183,7 @@ type Model struct {
 	deleteTarget    int
 	bulkDeleting    bool
 	bulkDeleteCount int
+	reloading       bool
 	vacuumPhase     bool
 	vacuuming       bool
 	orphanCount     int
@@ -317,7 +332,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.SetWidth(m.width - borderWidth)
 
 	case tea.MouseWheelMsg:
-		if m.bulkDeleting || m.vacuuming || m.pruning {
+		if m.bulkDeleting || m.reloading || m.vacuuming || m.pruning {
 			return m, nil
 		}
 		switch msg.Button {
@@ -330,7 +345,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		// Lock all input during bulk delete, VACUUM, or prune.
-		if m.bulkDeleting || m.vacuuming || m.pruning {
+		if m.bulkDeleting || m.reloading || m.vacuuming || m.pruning {
 			return m, nil
 		}
 
@@ -417,6 +432,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.deleteTarget = idx
 			}
 			return m, nil // don't forward to table
+		case "r":
+			m.reloading = true
+			return m, reloadData(m.dbPath, m.rootOnly, m.costPeriod)
 		case "v":
 			if m.dbTotal-m.dbUsed < minReclaimableBytes {
 				m.status = "nothing to vacuum"
@@ -502,6 +520,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusOK = true
 		}
 
+	case reloadedMsg:
+		m.reloading = false
+		if msg.err != nil {
+			m.status = fmt.Sprintf("reload failed: %s", msg.err)
+			m.statusOK = false
+		} else {
+			m.sessions = msg.sessions
+			m.totalSessions = msg.newTotal
+			m.dbUsed = msg.dbUsed
+			m.dbTotal = msg.dbTotal
+			m.orphanCount = msg.orphanCount
+			m.orphanBytes = msg.orphanBytes
+			if m.costPeriod != "" {
+				m.periodCost = msg.periodCost
+			}
+			m.selected = make(map[string]bool)
+			m.deletePhase = deleteNone
+			m.rebuildRows()
+			if len(m.sessions) == 0 {
+				m.table.SetCursor(0)
+			} else if m.table.Cursor() >= len(m.sessions) {
+				m.table.SetCursor(len(m.sessions) - 1)
+			}
+			m.status = "reloaded"
+			m.statusOK = true
+		}
+
 	case openedMsg:
 		if msg.err != nil {
 			m.status = fmt.Sprintf("error opening %s: %s", msg.sessionID, msg.err)
@@ -545,6 +590,8 @@ func (m Model) View() tea.View {
 	titleBar := m.renderTitleBar()
 	var statusText string
 	switch {
+	case m.reloading:
+		statusText = styleWarning.Render("reloading...")
 	case m.vacuuming:
 		statusText = styleWarning.Render("vacuuming...")
 	case m.vacuumPhase:
