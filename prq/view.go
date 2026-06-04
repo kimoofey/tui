@@ -80,26 +80,15 @@ func (m Model) renderTitleBar() string {
 }
 
 func (m Model) renderStatus() string {
-	prs := m.currentPRs()
 	normal := lipgloss.NewStyle().Foreground(ui.ColorText)
 	switch {
 	case m.loading:
 		return normal.Render("Fetching PRs…")
 	case m.statusMsg != "":
 		return m.statusMsg
-	case m.lastFetched.IsZero():
-		return normal.Render(fmt.Sprintf("%d PR(s) %s", len(prs), m.tabStatusLabel()))
 	default:
-		return normal.Render(fmt.Sprintf("%d PR(s) %s  ·  updated %s",
-			len(prs), m.tabStatusLabel(), m.lastFetched.Format("15:04")))
+		return normal.Render(fmt.Sprintf("updated %s", m.lastFetched.Format("15:04")))
 	}
-}
-
-func (m Model) tabStatusLabel() string {
-	if m.currentTab == 0 {
-		return "ready for review"
-	}
-	return "open"
 }
 
 func (m Model) renderFooter() string {
