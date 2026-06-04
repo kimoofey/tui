@@ -16,13 +16,14 @@ const (
 	widthAuthor    = 27
 	widthAge       = 7
 	widthApprovals = 9
+	widthEstimate  = 8
 
 	minTitleWidth = 12
 
-	numCols = 6
+	numCols = 7
 
 	tableFixedWidth = widthSource + widthRepo +
-		widthAuthor + widthAge + widthApprovals + numCols*2
+		widthAuthor + widthAge + widthApprovals + widthEstimate + numCols*2
 
 	borderWidth = 2
 )
@@ -39,6 +40,7 @@ func makeColumns(termWidth int) []table.Column {
 		{Title: "Title", Width: titleWidth(termWidth)},
 		{Title: "Author", Width: widthAuthor},
 		{Title: "Age", Width: widthAge},
+		{Title: "Time", Width: widthEstimate},
 		{Title: "Approvals", Width: widthApprovals},
 	}
 }
@@ -70,6 +72,7 @@ func PRsToRows(prs []PullRequest, minApprovals int) []table.Row {
 			pr.Title,
 			"@" + ui.Truncate(pr.Author, widthAuthor-1),
 			pr.Age(),
+			EstimateReviewTime(pr.Author, pr.Title, pr.Additions, pr.Deletions, pr.ChangedFiles),
 			approvalStr,
 		}
 	}

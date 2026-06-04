@@ -37,6 +37,9 @@ type ghPRNode struct {
 	URL               string   `json:"url"`
 	Author            ghAuthor `json:"author"`
 	CreatedAt         string   `json:"createdAt"`
+	Additions         int      `json:"additions"`
+	Deletions         int      `json:"deletions"`
+	ChangedFiles      int      `json:"changedFiles"`
 	IsDraft           bool     `json:"isDraft"`
 	ReviewDecision    string   `json:"reviewDecision"`
 	StatusCheckRollup *struct {
@@ -115,6 +118,9 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
             author { login }
           }
         }
+        additions
+        deletions
+        changedFiles
         viewerReview: reviews(first: 1, author: $user) {
           nodes { state }
         }
@@ -478,14 +484,17 @@ func convertPR(node ghPRNode, bucket Bucket, approvals int) (PullRequest, error)
 		return PullRequest{}, fmt.Errorf("parsing createdAt %q: %w", node.CreatedAt, err)
 	}
 	return PullRequest{
-		Number:    node.Number,
-		Title:     node.Title,
-		URL:       node.URL,
-		Author:    node.Author.Login,
-		Repo:      node.Repository.NameWithOwner,
-		CreatedAt: t,
-		Approvals: approvals,
-		Bucket:    bucket,
+		Number:       node.Number,
+		Title:        node.Title,
+		URL:          node.URL,
+		Author:       node.Author.Login,
+		Repo:         node.Repository.NameWithOwner,
+		CreatedAt:    t,
+		Approvals:    approvals,
+		Additions:    node.Additions,
+		Deletions:    node.Deletions,
+		ChangedFiles: node.ChangedFiles,
+		Bucket:       bucket,
 	}, nil
 }
 

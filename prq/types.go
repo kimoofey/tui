@@ -25,6 +25,9 @@ type PullRequest struct {
 	Repo           string
 	CreatedAt      time.Time
 	Approvals      int
+	Additions      int
+	Deletions      int
+	ChangedFiles   int
 	Bucket         Bucket
 	IsDraft        bool
 	ReviewDecision string
