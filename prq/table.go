@@ -59,7 +59,7 @@ func bucketLabel(b Bucket) string {
 }
 
 // PRsToRows converts a slice of PullRequests into bubbles/table rows.
-func PRsToRows(prs []PullRequest, minApprovals int) []table.Row {
+func PRsToRows(prs []PullRequest, minApprovals int, estimateBuckets []int) []table.Row {
 	rows := make([]table.Row, len(prs))
 	for i, pr := range prs {
 		approvalStr := fmt.Sprintf("%d/%d", pr.Approvals, minApprovals)
@@ -72,7 +72,7 @@ func PRsToRows(prs []PullRequest, minApprovals int) []table.Row {
 			pr.Title,
 			"@" + ui.Truncate(pr.Author, widthAuthor-1),
 			pr.Age(),
-			EstimateReviewTime(pr.Author, pr.Title, pr.Additions, pr.Deletions, pr.ChangedFiles),
+			EstimateReviewTime(pr.Author, pr.Title, pr.Additions, pr.Deletions, pr.ChangedFiles, estimateBuckets),
 			approvalStr,
 		}
 	}

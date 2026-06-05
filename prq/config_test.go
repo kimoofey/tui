@@ -24,6 +24,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.PageSize != 100 {
 		t.Errorf("PageSize = %d; want 100", cfg.PageSize)
 	}
+	if len(cfg.EstimateTimeBuckets) != 10 {
+		t.Errorf("EstimateTimeBuckets len = %d; want 10", len(cfg.EstimateTimeBuckets))
+	}
 }
 
 func TestMergeYAML_MissingFile(t *testing.T) {
@@ -64,9 +67,42 @@ skip_bots: false
 	if cfg.SkipBots {
 		t.Error("SkipBots = true; want false")
 	}
+	if len(cfg.EstimateTimeBuckets) != 10 {
+		t.Errorf("EstimateTimeBuckets len = %d; want 10 (default)", len(cfg.EstimateTimeBuckets))
+	}
 	// unset fields keep defaults
 	if cfg.PageSize != 100 {
 		t.Errorf("PageSize = %d; want 100 (default)", cfg.PageSize)
+	}
+}
+
+func TestMergeYAML_EstimateTimeBuckets(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	yaml := `estimate_time_buckets:
+  - 1
+  - 2
+  - 4
+  - 8
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := mergeYAML(&cfg, path); err != nil {
+		t.Fatalf("mergeYAML returned error: %v", err)
+	}
+
+	want := []int{1, 2, 4, 8}
+	if len(cfg.EstimateTimeBuckets) != len(want) {
+		t.Fatalf("EstimateTimeBuckets len = %d; want %d", len(cfg.EstimateTimeBuckets), len(want))
+	}
+	for i := range cfg.EstimateTimeBuckets {
+		if cfg.EstimateTimeBuckets[i] != want[i] {
+			t.Fatalf("EstimateTimeBuckets[%d] = %d; want %d", i, cfg.EstimateTimeBuckets[i], want[i])
+		}
 	}
 }
 

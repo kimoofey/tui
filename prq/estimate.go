@@ -2,10 +2,12 @@ package prq
 
 import (
 	"math"
+	"slices"
+	"strconv"
 	"strings"
 )
 
-func EstimateReviewTime(author, title string, additions, deletions, changedFiles int) string {
+func EstimateReviewTime(author, title string, additions, deletions, changedFiles int, buckets []int) string {
 	// Bot/dependency short-circuit
 	if author == "dependabot[bot]" || author == "renovate[bot]" {
 		return "~1m"
@@ -33,24 +35,36 @@ func EstimateReviewTime(author, title string, additions, deletions, changedFiles
 
 	estimate := math.Max(1, math.Min(120, rawEstimate))
 
-	switch {
-	case estimate <= 1:
-		return "~1m"
-	case estimate <= 2:
-		return "~2m"
-	case estimate <= 5:
-		return "~5m"
-	case estimate <= 10:
-		return "~10m"
-	case estimate <= 15:
-		return "~15m"
-	case estimate <= 20:
-		return "~20m"
-	case estimate <= 30:
-		return "~30m"
-	case estimate <= 45:
-		return "~45m"
-	default:
-		return "~60m+"
+	return estimateToLabel(estimate, buckets)
+}
+
+func estimateToLabel(estimate float64, buckets []int) string {
+	validBuckets := normalizedBuckets(buckets)
+	for _, b := range validBuckets {
+		if estimate <= float64(b) {
+			return "~" + itoa(b) + "m"
+		}
 	}
+	return "~" + itoa(validBuckets[len(validBuckets)-1]) + "m+"
+}
+
+func normalizedBuckets(buckets []int) []int {
+	if len(buckets) == 0 {
+		return defaultEstimateTimeBuckets()
+	}
+	copyBuckets := make([]int, 0, len(buckets))
+	for _, b := range buckets {
+		if b > 0 {
+			copyBuckets = append(copyBuckets, b)
+		}
+	}
+	if len(copyBuckets) == 0 {
+		return defaultEstimateTimeBuckets()
+	}
+	slices.Sort(copyBuckets)
+	return slices.Compact(copyBuckets)
+}
+
+func itoa(v int) string {
+	return strconv.Itoa(v)
 }

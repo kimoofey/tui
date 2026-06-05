@@ -74,7 +74,7 @@ func TestPRsToRows(t *testing.T) {
 		},
 	}
 
-	rows := PRsToRows(prs, 2)
+	rows := PRsToRows(prs, 2, defaultEstimateTimeBuckets())
 
 	if len(rows) != 2 {
 		t.Fatalf("PRsToRows: got %d rows; want 2", len(rows))
@@ -84,11 +84,11 @@ func TestPRsToRows(t *testing.T) {
 	if rows[0][0] != "[direct]" {
 		t.Errorf("row[0] source = %q; want %q", rows[0][0], "[direct]")
 	}
-	if rows[1][5] != "2/2 ✓" {
-		t.Errorf("row[1] approvals = %q; want %q", rows[1][5], "2/2 ✓")
+	if rows[1][6] != "2/2 ✓" {
+		t.Errorf("row[1] approvals = %q; want %q", rows[1][6], "2/2 ✓")
 	}
-	if rows[0][5] != "1/2" {
-		t.Errorf("row[0] approvals = %q; want %q", rows[0][5], "1/2")
+	if rows[0][6] != "1/2" {
+		t.Errorf("row[0] approvals = %q; want %q", rows[0][6], "1/2")
 	}
 }
 

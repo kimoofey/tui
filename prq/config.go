@@ -20,6 +20,7 @@ type Config struct {
 	MinApprovals        int      `yaml:"min_approvals"`
 	SkipAlreadyReviewed bool     `yaml:"skip_already_reviewed"`
 	SkipBots            bool     `yaml:"skip_bots"`
+	EstimateTimeBuckets []int    `yaml:"estimate_time_buckets"`
 	OpencodeTerminal    string   `yaml:"opencode_terminal"`
 	PageSize            int      `yaml:"page_size"`
 	MaxReviewers        int      `yaml:"max_reviewers"`
@@ -33,11 +34,16 @@ func defaultConfig() Config {
 		MinApprovals:        2,
 		SkipAlreadyReviewed: true,
 		SkipBots:            true,
+		EstimateTimeBuckets: defaultEstimateTimeBuckets(),
 		OpencodeTerminal:    "",
 		PageSize:            100,
 		MaxReviewers:        20,
 		MaxPages:            3,
 	}
+}
+
+func defaultEstimateTimeBuckets() []int {
+	return []int{1, 2, 3, 5, 8, 12, 20, 30, 45, 60}
 }
 
 // GlobalConfigPath returns ~/.config/prq/config.yaml, respecting

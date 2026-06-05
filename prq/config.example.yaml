@@ -23,6 +23,11 @@ skip_already_reviewed: true
 # Skip PRs authored by bots (Dependabot, github-actions, etc.).
 skip_bots: true
 
+# Display buckets for estimated review time (minutes).
+# Estimation rounds up to the first bucket >= computed minutes.
+# If estimate is above the largest value, prq shows "~<last>m+".
+estimate_time_buckets: [1, 2, 3, 5, 8, 12, 20, 30, 45, 60]
+
 # Terminal to open for opencode PR reviews (o key).
 # Leave empty for auto-detection via $TERM_PROGRAM.
 # Recognised values: terminal (macOS Terminal.app), ghostty, iterm2.
