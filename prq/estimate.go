@@ -42,10 +42,10 @@ func estimateToLabel(estimate float64, buckets []int) string {
 	validBuckets := normalizedBuckets(buckets)
 	for _, b := range validBuckets {
 		if estimate <= float64(b) {
-			return "~" + itoa(b) + "m"
+			return "~" + strconv.Itoa(b) + "m"
 		}
 	}
-	return "~" + itoa(validBuckets[len(validBuckets)-1]) + "m+"
+	return "~" + strconv.Itoa(validBuckets[len(validBuckets)-1]) + "m+"
 }
 
 func normalizedBuckets(buckets []int) []int {
@@ -63,8 +63,4 @@ func normalizedBuckets(buckets []int) []int {
 	}
 	slices.Sort(copyBuckets)
 	return slices.Compact(copyBuckets)
-}
-
-func itoa(v int) string {
-	return strconv.Itoa(v)
 }

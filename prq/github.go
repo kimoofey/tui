@@ -125,6 +125,9 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
             }
           }
         }
+        # Filtered by REVIEW_REQUESTED_EVENT first, then paginated. last:30 keeps
+        # payload small while covering almost all real-world re-request patterns.
+        # If no matching event is found, prq falls back to createdAt.
         timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 30) {
           nodes {
             ... on ReviewRequestedEvent {

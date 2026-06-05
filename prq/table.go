@@ -14,7 +14,7 @@ const (
 	widthSource    = 8
 	widthRepo      = 16
 	widthAuthor    = 27
-	widthAge       = 7
+	widthPending   = 7
 	widthApprovals = 9
 	widthEstimate  = 8
 
@@ -23,7 +23,7 @@ const (
 	numCols = 7
 
 	tableFixedWidth = widthSource + widthRepo +
-		widthAuthor + widthAge + widthApprovals + widthEstimate + numCols*2
+		widthAuthor + widthPending + widthApprovals + widthEstimate + numCols*2
 
 	borderWidth = 2
 )
@@ -39,7 +39,7 @@ func makeColumns(termWidth int) []table.Column {
 		{Title: "Repo", Width: widthRepo},
 		{Title: "Title", Width: titleWidth(termWidth)},
 		{Title: "Author", Width: widthAuthor},
-		{Title: "Pending", Width: widthAge},
+		{Title: "Pending", Width: widthPending},
 		{Title: "Time", Width: widthEstimate},
 		{Title: "Approvals", Width: widthApprovals},
 	}
@@ -84,7 +84,7 @@ const (
 
 	numMyCols = 5
 
-	myTableFixedWidth = widthSource + widthRepo + widthAge + widthMyReview + numMyCols*2
+	myTableFixedWidth = widthSource + widthRepo + widthPending + widthMyReview + numMyCols*2
 )
 
 func myTitleWidth(termWidth int) int {
@@ -97,7 +97,7 @@ func makeMyColumns(termWidth int) []table.Column {
 		{Title: "Status", Width: widthSource},
 		{Title: "Repo", Width: widthRepo},
 		{Title: "Title", Width: myTitleWidth(termWidth)},
-		{Title: "Age", Width: widthAge},
+		{Title: "Age", Width: widthPending},
 		{Title: "Review", Width: widthMyReview},
 	}
 }
