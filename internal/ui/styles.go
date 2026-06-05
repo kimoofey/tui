@@ -24,11 +24,11 @@ func HelpStyles() help.Styles {
 	return help.Styles{
 		ShortKey:       lipgloss.NewStyle().Foreground(ColorAccent),
 		ShortDesc:      lipgloss.NewStyle().Foreground(ColorText),
-		ShortSeparator: lipgloss.NewStyle().Foreground(ColorMuted),
-		Ellipsis:       lipgloss.NewStyle().Foreground(ColorMuted),
+		ShortSeparator: lipgloss.NewStyle().Foreground(ColorSubtleText),
+		Ellipsis:       lipgloss.NewStyle().Foreground(ColorSubtleText),
 		FullKey:        lipgloss.NewStyle().Foreground(ColorAccent),
 		FullDesc:       lipgloss.NewStyle().Foreground(ColorText),
-		FullSeparator:  lipgloss.NewStyle().Foreground(ColorMuted),
+		FullSeparator:  lipgloss.NewStyle().Foreground(ColorSubtleText),
 	}
 }
 

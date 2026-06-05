@@ -139,7 +139,7 @@ func MyPRsToRows(prs []PullRequest) []table.Row {
 
 var styleBase = lipgloss.NewStyle().
 	BorderStyle(lipgloss.NormalBorder()).
-	BorderForeground(ui.ColorMuted)
+	BorderForeground(ui.ColorBorder)
 
 var (
 	styleError = lipgloss.NewStyle().Foreground(ui.ColorError)
@@ -158,7 +158,7 @@ var (
 				Padding(0, 2)
 
 	tabSepStyle = lipgloss.NewStyle().
-			Foreground(ui.ColorMuted)
+			Foreground(ui.ColorSubtleText)
 
 	tabRowStyle = lipgloss.NewStyle()
 )
@@ -167,7 +167,7 @@ func makeTableStyles() table.Styles {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(ui.ColorMuted).
+		BorderForeground(ui.ColorBorder).
 		BorderBottom(true).
 		Foreground(ui.ColorAccent).
 		Bold(true)
@@ -179,11 +179,11 @@ func makeTableStyles() table.Styles {
 }
 
 func emptyStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(ui.ColorMuted)
+	return lipgloss.NewStyle().Foreground(ui.ColorSubtleText)
 }
 
 func tabBorderLine(width int) string {
 	return lipgloss.NewStyle().
-		Foreground(ui.ColorMuted).
+		Foreground(ui.ColorBorder).
 		Render(strings.Repeat("━", width))
 }

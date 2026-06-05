@@ -94,7 +94,7 @@ const (
 var (
 	styleBase = lipgloss.NewStyle().
 			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(ui.ColorMuted)
+			BorderForeground(ui.ColorBorder)
 
 	styleSuccess = lipgloss.NewStyle().
 			Foreground(ui.ColorSuccess)
@@ -242,7 +242,7 @@ func New(opts Options, termWidth, termHeight int) Model {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(ui.ColorMuted).
+		BorderForeground(ui.ColorBorder).
 		BorderBottom(true).
 		Bold(true).
 		Foreground(ui.ColorAccent)

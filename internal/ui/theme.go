@@ -32,15 +32,16 @@ var (
 // Exported so individual apps can override them before constructing their model.
 
 var (
-	ColorBg       = compat.AdaptiveColor{Dark: nord0, Light: nord6}
-	ColorElevated = compat.AdaptiveColor{Dark: nord1, Light: nord4}
-	ColorSelected = compat.AdaptiveColor{Dark: nord2, Light: nord5}
-	ColorMuted    = compat.AdaptiveColor{Dark: nord3, Light: nord3}
-	ColorText     = compat.AdaptiveColor{Dark: nord4, Light: nord0}
-	ColorAccent   = compat.AdaptiveColor{Dark: nord8, Light: nord8}
-	ColorError    = compat.AdaptiveColor{Dark: nord11, Light: nord11}
-	ColorWarning  = compat.AdaptiveColor{Dark: nord13, Light: nord13}
-	ColorSuccess  = compat.AdaptiveColor{Dark: nord14, Light: nord14}
+	ColorBg         = compat.AdaptiveColor{Dark: nord0, Light: nord6}
+	ColorElevated   = compat.AdaptiveColor{Dark: nord1, Light: nord4}
+	ColorSelected   = compat.AdaptiveColor{Dark: nord2, Light: nord5}
+	ColorBorder     = compat.AdaptiveColor{Dark: nord2, Light: nord4}
+	ColorSubtleText = compat.AdaptiveColor{Dark: nord3, Light: nord2}
+	ColorText       = compat.AdaptiveColor{Dark: nord4, Light: nord0}
+	ColorAccent     = compat.AdaptiveColor{Dark: nord8, Light: nord9}
+	ColorError      = compat.AdaptiveColor{Dark: nord11, Light: nord11}
+	ColorWarning    = compat.AdaptiveColor{Dark: nord13, Light: nord13}
+	ColorSuccess    = compat.AdaptiveColor{Dark: nord14, Light: nord14}
 )
 
 // suppress unused-var warnings for palette entries not used in color roles
