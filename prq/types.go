@@ -24,6 +24,7 @@ type PullRequest struct {
 	Author         string
 	Repo           string
 	CreatedAt      time.Time
+	WaitSince      time.Time
 	Approvals      int
 	Additions      int
 	Deletions      int
@@ -47,6 +48,33 @@ func (pr PullRequest) age(now time.Time) string {
 	default:
 		return fmt.Sprintf("%dd ago", days)
 	}
+}
+
+func (pr PullRequest) WaitTime() string {
+	return pr.waitTime(time.Now())
+}
+
+func (pr PullRequest) waitTime(now time.Time) string {
+	start := pr.WaitSince
+	if start.IsZero() {
+		start = pr.CreatedAt
+	}
+	d := now.Sub(start)
+	if d < 0 {
+		d = 0
+	}
+	if d < time.Hour {
+		return "<1h"
+	}
+	hours := int(d.Hours())
+	if hours < 24 {
+		return fmt.Sprintf("%dh", hours)
+	}
+	days := hours / 24
+	if days <= 7 {
+		return fmt.Sprintf("%dd", days)
+	}
+	return "7d+"
 }
 
 func (pr PullRequest) RepoShort() string {

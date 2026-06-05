@@ -30,6 +30,33 @@ func TestAge(t *testing.T) {
 	}
 }
 
+func TestWaitTime(t *testing.T) {
+	now := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name      string
+		waitSince time.Time
+		createdAt time.Time
+		want      string
+	}{
+		{"less than hour", now.Add(-59 * time.Minute), now.Add(-10 * time.Hour), "<1h"},
+		{"one hour", now.Add(-1 * time.Hour), now.Add(-10 * time.Hour), "1h"},
+		{"twenty three hours", now.Add(-23 * time.Hour), now.Add(-10 * time.Hour), "23h"},
+		{"one day", now.Add(-24 * time.Hour), now.Add(-10 * time.Hour), "1d"},
+		{"seven days", now.Add(-7 * 24 * time.Hour), now.Add(-10 * time.Hour), "7d"},
+		{"more than seven days", now.Add(-8 * 24 * time.Hour), now.Add(-10 * time.Hour), "7d+"},
+		{"fallback to createdAt", time.Time{}, now.Add(-2 * time.Hour), "2h"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr := PullRequest{WaitSince: tt.waitSince, CreatedAt: tt.createdAt}
+			got := pr.waitTime(now)
+			if got != tt.want {
+				t.Errorf("waitTime() = %q; want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRepoShort(t *testing.T) {
 	tests := []struct {
 		repo string

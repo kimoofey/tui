@@ -39,7 +39,7 @@ func makeColumns(termWidth int) []table.Column {
 		{Title: "Repo", Width: widthRepo},
 		{Title: "Title", Width: titleWidth(termWidth)},
 		{Title: "Author", Width: widthAuthor},
-		{Title: "Age", Width: widthAge},
+		{Title: "Pending", Width: widthAge},
 		{Title: "Time", Width: widthEstimate},
 		{Title: "Approvals", Width: widthApprovals},
 	}
@@ -71,7 +71,7 @@ func PRsToRows(prs []PullRequest, minApprovals int, estimateBuckets []int) []tab
 			ui.Truncate(pr.RepoShort(), widthRepo),
 			pr.Title,
 			"@" + ui.Truncate(pr.Author, widthAuthor-1),
-			pr.Age(),
+			pr.WaitTime(),
 			EstimateReviewTime(pr.Author, pr.Title, pr.Additions, pr.Deletions, pr.ChangedFiles, estimateBuckets),
 			approvalStr,
 		}

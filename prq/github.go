@@ -31,6 +31,16 @@ type ghReviewRequest struct {
 	} `json:"requestedReviewer"`
 }
 
+type ghRequestedReviewer struct {
+	Login string `json:"login"`
+	Slug  string `json:"slug"`
+}
+
+type ghReviewRequestedEvent struct {
+	CreatedAt         string               `json:"createdAt"`
+	RequestedReviewer *ghRequestedReviewer `json:"requestedReviewer"`
+}
+
 type ghPRNode struct {
 	Number            int      `json:"number"`
 	Title             string   `json:"title"`
@@ -51,6 +61,9 @@ type ghPRNode struct {
 	ReviewRequests struct {
 		Nodes []ghReviewRequest `json:"nodes"`
 	} `json:"reviewRequests"`
+	TimelineItems struct {
+		Nodes []ghReviewRequestedEvent `json:"nodes"`
+	} `json:"timelineItems"`
 	Reviews struct {
 		Nodes []ghReview `json:"nodes"`
 	} `json:"latestOpinionatedReviews"`
@@ -109,6 +122,17 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
             requestedReviewer {
               ... on User { login }
               ... on Team { slug }
+            }
+          }
+        }
+        timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 30) {
+          nodes {
+            ... on ReviewRequestedEvent {
+              createdAt
+              requestedReviewer {
+                ... on User { login }
+                ... on Team { slug }
+              }
             }
           }
         }
@@ -299,7 +323,7 @@ func fetchAssignedPRs(cfg Config, user, dateThreshold string) ([]PullRequest, er
 		if !shouldInclude(node, cfg, approvals, userReviewed) {
 			continue
 		}
-		pr, err := convertPR(node, bucketForNode(node, user), approvals)
+		pr, err := convertPR(node, bucketForNode(node, user), approvals, user)
 		if err != nil {
 			continue
 		}
@@ -336,7 +360,7 @@ func fetchWatchPRs(cfg Config, user, dateThreshold string) ([]PullRequest, error
 		if !shouldInclude(node, cfg, approvals, userReviewed) {
 			continue
 		}
-		pr, err := convertPR(node, BucketWatch, approvals)
+		pr, err := convertPR(node, BucketWatch, approvals, user)
 		if err != nil {
 			continue
 		}
@@ -478,11 +502,12 @@ func bucketForNode(node ghPRNode, user string) Bucket {
 	return BucketTeam
 }
 
-func convertPR(node ghPRNode, bucket Bucket, approvals int) (PullRequest, error) {
+func convertPR(node ghPRNode, bucket Bucket, approvals int, user string) (PullRequest, error) {
 	t, err := time.Parse(time.RFC3339, node.CreatedAt)
 	if err != nil {
 		return PullRequest{}, fmt.Errorf("parsing createdAt %q: %w", node.CreatedAt, err)
 	}
+	waitSince := selectWaitSince(node, bucket, user, t)
 	return PullRequest{
 		Number:       node.Number,
 		Title:        node.Title,
@@ -490,12 +515,67 @@ func convertPR(node ghPRNode, bucket Bucket, approvals int) (PullRequest, error)
 		Author:       node.Author.Login,
 		Repo:         node.Repository.NameWithOwner,
 		CreatedAt:    t,
+		WaitSince:    waitSince,
 		Approvals:    approvals,
 		Additions:    node.Additions,
 		Deletions:    node.Deletions,
 		ChangedFiles: node.ChangedFiles,
 		Bucket:       bucket,
 	}, nil
+}
+
+func selectWaitSince(node ghPRNode, bucket Bucket, user string, fallback time.Time) time.Time {
+	if bucket == BucketWatch {
+		return fallback
+	}
+
+	latest := time.Time{}
+	for _, item := range node.TimelineItems.Nodes {
+		if item.RequestedReviewer == nil {
+			continue
+		}
+		if !matchesWaitRequest(item.RequestedReviewer, bucket, user, node) {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, item.CreatedAt)
+		if err != nil {
+			continue
+		}
+		if t.After(latest) {
+			latest = t
+		}
+	}
+
+	if latest.IsZero() {
+		return fallback
+	}
+	return latest
+}
+
+func matchesWaitRequest(requested *ghRequestedReviewer, bucket Bucket, user string, node ghPRNode) bool {
+	if bucket == BucketDirect {
+		return requested.Login == user
+	}
+	if bucket != BucketTeam {
+		return false
+	}
+	teams := currentRequestedTeams(node)
+	if len(teams) == 0 {
+		return false
+	}
+	_, ok := teams[requested.Slug]
+	return ok
+}
+
+func currentRequestedTeams(node ghPRNode) map[string]struct{} {
+	teams := make(map[string]struct{})
+	for _, rr := range node.ReviewRequests.Nodes {
+		slug := rr.RequestedReviewer.Slug
+		if slug != "" {
+			teams[slug] = struct{}{}
+		}
+	}
+	return teams
 }
 
 func convertMyPR(node ghPRNode) (PullRequest, error) {
