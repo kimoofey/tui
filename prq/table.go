@@ -72,7 +72,7 @@ func PRsToRows(prs []PullRequest, minApprovals int, estimateBuckets []int) []tab
 			pr.Title,
 			"@" + ui.Truncate(pr.Author, widthAuthor-1),
 			pr.WaitTime(),
-			EstimateReviewTime(pr.Author, pr.Title, pr.Additions, pr.Deletions, pr.ChangedFiles, estimateBuckets),
+			EstimateReviewTime(pr.Author, pr.Title, pr.Additions, pr.Deletions, pr.ChangedFiles, pr.Files, pr.FilesTruncated, estimateBuckets),
 			approvalStr,
 		}
 	}

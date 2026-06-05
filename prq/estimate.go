@@ -7,24 +7,13 @@ import (
 	"strings"
 )
 
-func EstimateReviewTime(author, title string, additions, deletions, changedFiles int, buckets []int) string {
+func EstimateReviewTime(author, title string, additions, deletions, changedFiles int, files []PRFile, filesTruncated bool, buckets []int) string {
 	// Bot/dependency short-circuit
 	if author == "dependabot[bot]" || author == "renovate[bot]" {
 		return "~1m"
 	}
 
-	rawEstimate := 0.0
-
-	// Effective lines
-	effectiveLines := float64(additions) + (float64(deletions) * 0.4)
-
-	// Base reading time
-	baseMinutes := effectiveLines / 7.0
-
-	// Context-switching penalty
-	filePenalty := math.Max(0, float64(changedFiles)-3) * 1.5
-
-	rawEstimate = baseMinutes + filePenalty
+	rawEstimate := estimateFromWeightedFiles(additions, deletions, changedFiles, files, filesTruncated)
 
 	if strings.Contains(strings.ToLower(title), "bump") ||
 		strings.Contains(strings.ToLower(title), "update") ||
@@ -36,6 +25,50 @@ func EstimateReviewTime(author, title string, additions, deletions, changedFiles
 	estimate := math.Max(1, math.Min(120, rawEstimate))
 
 	return estimateToLabel(estimate, buckets)
+}
+
+func estimateFromWeightedFiles(additions, deletions, changedFiles int, files []PRFile, filesTruncated bool) float64 {
+	if len(files) == 0 {
+		return estimateFromAggregate(additions, deletions, changedFiles)
+	}
+
+	weightedLines := 0.0
+	weightedFiles := 0.0
+	for _, f := range files {
+		w := fileTypeWeight(f.Path)
+		weightedLines += (float64(f.Additions) + float64(f.Deletions)*deletionsWeight) * w
+		weightedFiles += fileSwitchWeight(f.Path)
+	}
+
+	base := defaultBaseOverhead + (weightedLines / defaultReviewThroughput)
+	contextPenalty := math.Max(0, weightedFiles-defaultContextFreeFiles) * defaultContextSwitchMins
+	raw := base + contextPenalty
+
+	fetchedCount := len(files)
+	coverage := 1.0
+	if changedFiles > 0 {
+		coverage = float64(fetchedCount) / float64(changedFiles)
+	}
+
+	if filesTruncated || changedFiles > fetchedCount {
+		if coverage < minCoverageForFileOnlyEst {
+			return estimateFromAggregate(additions, deletions, changedFiles)
+		}
+		scaleUp := 1 / coverage
+		if scaleUp > maxCoverageScaleUp {
+			scaleUp = maxCoverageScaleUp
+		}
+		raw *= scaleUp
+	}
+
+	return raw
+}
+
+func estimateFromAggregate(additions, deletions, changedFiles int) float64 {
+	effectiveLines := float64(additions) + float64(deletions)*deletionsWeight
+	base := defaultBaseOverhead + (effectiveLines / defaultReviewThroughput)
+	contextPenalty := math.Max(0, float64(changedFiles)-defaultContextFreeFiles) * defaultContextSwitchMins
+	return base + contextPenalty
 }
 
 func estimateToLabel(estimate float64, buckets []int) string {

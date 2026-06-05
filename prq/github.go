@@ -41,6 +41,12 @@ type ghReviewRequestedEvent struct {
 	RequestedReviewer *ghRequestedReviewer `json:"requestedReviewer"`
 }
 
+type ghPRFile struct {
+	Path      string `json:"path"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+}
+
 type ghPRNode struct {
 	Number            int      `json:"number"`
 	Title             string   `json:"title"`
@@ -64,6 +70,12 @@ type ghPRNode struct {
 	TimelineItems struct {
 		Nodes []ghReviewRequestedEvent `json:"nodes"`
 	} `json:"timelineItems"`
+	Files struct {
+		Nodes []ghPRFile `json:"nodes"`
+		PageInfo struct {
+			HasNextPage bool `json:"hasNextPage"`
+		} `json:"pageInfo"`
+	} `json:"files"`
 	Reviews struct {
 		Nodes []ghReview `json:"nodes"`
 	} `json:"latestOpinionatedReviews"`
@@ -148,6 +160,14 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
         additions
         deletions
         changedFiles
+        files(first: 100) {
+          nodes {
+            path
+            additions
+            deletions
+          }
+          pageInfo { hasNextPage }
+        }
         viewerReview: reviews(first: 1, author: $user) {
           nodes { state }
         }
@@ -511,6 +531,10 @@ func convertPR(node ghPRNode, bucket Bucket, approvals int, user string) (PullRe
 		return PullRequest{}, fmt.Errorf("parsing createdAt %q: %w", node.CreatedAt, err)
 	}
 	waitSince := selectWaitSince(node, bucket, user, t)
+	files := make([]PRFile, 0, len(node.Files.Nodes))
+	for _, f := range node.Files.Nodes {
+		files = append(files, PRFile{Path: f.Path, Additions: f.Additions, Deletions: f.Deletions})
+	}
 	return PullRequest{
 		Number:       node.Number,
 		Title:        node.Title,
@@ -523,22 +547,22 @@ func convertPR(node ghPRNode, bucket Bucket, approvals int, user string) (PullRe
 		Additions:    node.Additions,
 		Deletions:    node.Deletions,
 		ChangedFiles: node.ChangedFiles,
+		Files:        files,
+		FilesTruncated: node.Files.PageInfo.HasNextPage,
 		Bucket:       bucket,
 	}, nil
 }
 
 func selectWaitSince(node ghPRNode, bucket Bucket, user string, fallback time.Time) time.Time {
-	if bucket == BucketWatch {
-		return fallback
-	}
-
 	latest := time.Time{}
 	for _, item := range node.TimelineItems.Nodes {
-		if item.RequestedReviewer == nil {
-			continue
-		}
-		if !matchesWaitRequest(item.RequestedReviewer, bucket, user, node) {
-			continue
+		if bucket != BucketWatch {
+			if item.RequestedReviewer == nil {
+				continue
+			}
+			if !matchesWaitRequest(item.RequestedReviewer, bucket, user, node) {
+				continue
+			}
 		}
 		t, err := time.Parse(time.RFC3339, item.CreatedAt)
 		if err != nil {

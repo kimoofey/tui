@@ -12,6 +12,9 @@ Interactive TUI for your GitHub PR review queue. Surfaces PRs waiting for your a
 
 A second tab — **My PRs** — shows open PRs you authored, with their review status.
 
+In the review tab, **Pending** shows time since the most recent review request event
+(falls back to PR creation time when no review-request event is available).
+
 ## Requirements
 
 - [`gh`](https://cli.github.com/) — GitHub CLI, authenticated (`gh auth login`)
@@ -98,6 +101,7 @@ days_ago: 30 # how far back to look across all sources
 min_approvals: 2 # skip PRs that already have this many approvals
 skip_already_reviewed: true # skip PRs you've already left a review on
 skip_bots: true # skip PRs authored by bots (Dependabot, github-actions, etc.)
+estimate_time_buckets: [1, 2, 3, 5, 8, 12, 20, 30, 45, 60] # minute buckets for Time column labels
 opencode_terminal: "" # terminal for `o` key — auto-detected from $TERM_PROGRAM
 page_size: 100 # GraphQL results per page (max 100)
 max_reviewers: 20 # max reviewer nodes fetched per PR
@@ -105,3 +109,23 @@ max_pages: 3 # max pagination pages per source fetch
 ```
 
 Config is read from `~/.config/prq/config.yaml`.
+
+### Time estimate model
+
+The **Time** column is a heuristic estimate from per-file diff stats. It uses
+weighted lines and weighted file-switching cost:
+
+- `weightedLines = sum((additions + deletions*0.4) * fileTypeWeight)`
+- `minutes = 2.0 + weightedLines/30.0 + max(0, weightedFiles-3)*0.75`
+
+High-level file weights:
+
+- code (`.ts/.tsx/.js/.java/.py/.go/...`): `1.0`
+- tests (`test/spec/__tests__/cypress/e2e`): `0.45`
+- config/build (`.yml/.yaml/.json/.tf/.toml`, CI/charts): `0.6`
+- docs (`.md/.mdx/.txt/...`): `0.25`
+- lock/generated: `0.15`
+- binary/assets (`.png/.jpg/.webp/.svg/.pdf/...`): `0.0`
+
+If file stats are truncated (very large PRs), prq scales cautiously or falls
+back to aggregate PR stats.

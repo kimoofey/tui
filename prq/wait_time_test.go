@@ -57,7 +57,27 @@ func TestSelectWaitSince_TeamUsesLatestMatchingCurrentRequestedTeam(t *testing.T
 	}
 }
 
-func TestSelectWaitSince_WatchUsesFallback(t *testing.T) {
+func TestSelectWaitSince_WatchUsesLatestReviewRequest(t *testing.T) {
+	fallback := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+	node := ghPRNode{
+		TimelineItems: struct {
+			Nodes []ghReviewRequestedEvent `json:"nodes"`
+		}{
+			Nodes: []ghReviewRequestedEvent{
+				{CreatedAt: "2025-06-02T10:00:00Z"},
+				{CreatedAt: "2025-06-04T10:00:00Z"},
+			},
+		},
+	}
+
+	got := selectWaitSince(node, BucketWatch, "me", fallback)
+	want := time.Date(2025, 6, 4, 10, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("selectWaitSince() = %v; want %v", got, want)
+	}
+}
+
+func TestSelectWaitSince_WatchFallsBackWhenNoEvents(t *testing.T) {
 	fallback := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
 	node := ghPRNode{}
 

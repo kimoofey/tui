@@ -29,9 +29,17 @@ type PullRequest struct {
 	Additions      int
 	Deletions      int
 	ChangedFiles   int
+	Files          []PRFile
+	FilesTruncated bool
 	Bucket         Bucket
 	IsDraft        bool
 	ReviewDecision string
+}
+
+type PRFile struct {
+	Path      string
+	Additions int
+	Deletions int
 }
 
 func (pr PullRequest) Age() string {
