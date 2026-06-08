@@ -9,7 +9,7 @@ Set Theme "nord"
 Set PlaybackSpeed 0.75
 
 Hide
-Type "bin/ocm-mock"
+Type "bin/ocm-mock --cost-period month"
 Enter
 Sleep 800ms
 Show
