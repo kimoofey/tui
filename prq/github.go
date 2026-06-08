@@ -57,6 +57,7 @@ type ghPRNode struct {
 	Number            int      `json:"number"`
 	Title             string   `json:"title"`
 	URL               string   `json:"url"`
+	HeadRefOID        string   `json:"headRefOid"`
 	Author            ghAuthor `json:"author"`
 	CreatedAt         string   `json:"createdAt"`
 	Additions         int      `json:"additions"`
@@ -133,6 +134,7 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
         number
         title
         url
+        headRefOid
         author { __typename login }
         createdAt
         repository { nameWithOwner }
@@ -171,6 +173,7 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
         number
         title
         url
+        headRefOid
         author { __typename login }
         createdAt
         repository { nameWithOwner }
@@ -232,6 +235,7 @@ query($searchQuery: String!, $pageSize: Int!, $cursor: String) {
         number
         title
         url
+        headRefOid
         isDraft
         createdAt
         reviewDecision
@@ -409,6 +413,9 @@ func EnrichReviewPRs(cfg Config, reviewPRs []PullRequest) enrichResult {
 	if len(errs) > 0 {
 		return enrichResult{Updates: updates, Err: errors.New(strings.Join(errs, "; "))}
 	}
+	if DebugEnabled {
+		log.Printf("[enrich] updates=%d requested=%d", len(updates), len(reviewPRs))
+	}
 
 	return enrichResult{Updates: updates}
 }
@@ -465,10 +472,7 @@ func fetchReviewNodes(cfg Config, user, stage, searchQuery, query string) ([]ghP
 }
 
 func fetchAssignedPRs(cfg Config, user, dateThreshold string) ([]PullRequest, error) {
-	searchQuery := fmt.Sprintf(
-		"is:pr is:open review-requested:@me -author:%s -draft:true created:>=%s sort:created-asc",
-		user, dateThreshold,
-	)
+	searchQuery := assignedSearchQuery(cfg, user, dateThreshold)
 
 	nodes, err := fetchReviewNodes(cfg, user, "fetch.assigned", searchQuery, queryReviewPRsLight)
 	if err != nil {
@@ -502,10 +506,7 @@ func fetchWatchPRs(cfg Config, user, dateThreshold string) ([]PullRequest, error
 	for _, r := range cfg.WatchRepos {
 		repoParts = append(repoParts, "repo:"+r)
 	}
-	searchQuery := fmt.Sprintf(
-		"%s is:pr is:open created:>=%s -author:%s -draft:true sort:created-asc",
-		strings.Join(repoParts, " "), dateThreshold, user,
-	)
+	searchQuery := watchSearchQuery(cfg, user, dateThreshold, repoParts)
 
 	nodes, err := fetchReviewNodes(cfg, user, "fetch.watch", searchQuery, queryReviewPRsLight)
 	if err != nil {
@@ -531,10 +532,7 @@ func fetchWatchPRs(cfg Config, user, dateThreshold string) ([]PullRequest, error
 }
 
 func fetchAssignedPRsEnriched(cfg Config, user, dateThreshold string) ([]PullRequest, error) {
-	searchQuery := fmt.Sprintf(
-		"is:pr is:open review-requested:@me -author:%s -draft:true created:>=%s sort:created-asc",
-		user, dateThreshold,
-	)
+	searchQuery := assignedSearchQuery(cfg, user, dateThreshold)
 
 	nodes, err := fetchReviewNodes(cfg, user, "enrich.assigned", searchQuery, queryReviewPRsEnrich)
 	if err != nil {
@@ -569,10 +567,7 @@ func fetchWatchPRsEnriched(cfg Config, user, dateThreshold string) ([]PullReques
 	for _, r := range cfg.WatchRepos {
 		repoParts = append(repoParts, "repo:"+r)
 	}
-	searchQuery := fmt.Sprintf(
-		"%s is:pr is:open created:>=%s -author:%s -draft:true sort:created-asc",
-		strings.Join(repoParts, " "), dateThreshold, user,
-	)
+	searchQuery := watchSearchQuery(cfg, user, dateThreshold, repoParts)
 
 	nodes, err := fetchReviewNodes(cfg, user, "enrich.watch", searchQuery, queryReviewPRsEnrich)
 	if err != nil {
@@ -668,6 +663,38 @@ func debugDuration(stage string, start time.Time) {
 	log.Printf("[timing] %s=%s", stage, time.Since(start).Round(time.Millisecond))
 }
 
+func assignedSearchQuery(cfg Config, user, dateThreshold string) string {
+	return fmt.Sprintf(
+		"is:pr is:open review-requested:@me -author:%s -draft:true created:>=%s%s sort:created-asc",
+		user, dateThreshold, searchFilterSuffix(cfg),
+	)
+}
+
+func watchSearchQuery(cfg Config, user, dateThreshold string, repoParts []string) string {
+	return fmt.Sprintf(
+		"%s is:pr is:open created:>=%s -author:%s -draft:true%s sort:created-asc",
+		strings.Join(repoParts, " "), dateThreshold, user, searchFilterSuffix(cfg),
+	)
+}
+
+func searchFilterSuffix(cfg Config) string {
+	parts := []string{}
+	if cfg.MinApprovals > 0 {
+		parts = append(parts, "-review:approved")
+	}
+	if cfg.SkipBots {
+		parts = append(parts,
+			"-author:app/dependabot",
+			"-author:app/renovate",
+			"-author:app/github-actions",
+		)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " " + strings.Join(parts, " ")
+}
+
 var (
 	cachedUser   string
 	cachedUserMu sync.Mutex
@@ -693,6 +720,11 @@ func getUser() (string, error) {
 	}
 	cachedUser = strings.TrimSpace(string(out))
 	return cachedUser, nil
+}
+
+func PrefetchUser() error {
+	_, err := getUser()
+	return err
 }
 
 func runGraphQL(args []string) ([]byte, error) {
@@ -759,6 +791,7 @@ func convertPR(node ghPRNode, bucket Bucket, approvals int, user string) (PullRe
 		URL:          node.URL,
 		Author:       node.Author.Login,
 		Repo:         node.Repository.NameWithOwner,
+		HeadRefOID:   node.HeadRefOID,
 		CreatedAt:    t,
 		WaitSince:    waitSince,
 		Approvals:    approvals,
@@ -836,6 +869,7 @@ func convertMyPR(node ghPRNode) (PullRequest, error) {
 		URL:            node.URL,
 		Author:         node.Author.Login,
 		Repo:           node.Repository.NameWithOwner,
+		HeadRefOID:     node.HeadRefOID,
 		CreatedAt:      t,
 		Bucket:         BucketMine,
 		IsDraft:        node.IsDraft,

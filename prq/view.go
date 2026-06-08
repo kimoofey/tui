@@ -85,6 +85,10 @@ func (m Model) renderStatus() string {
 	case m.loading:
 		return normal.Render("Fetching PRs…")
 	case m.enriching:
+		total := len(m.reviewPRs)
+		if total > 0 {
+			return normal.Render(fmt.Sprintf("%s Enriching details %d/%d…", m.spinner.View(), m.enriched, total))
+		}
 		return normal.Render(fmt.Sprintf("%s Enriching details…", m.spinner.View()))
 	case m.statusMsg != "":
 		return m.statusMsg

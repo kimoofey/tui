@@ -24,6 +24,7 @@ type PullRequest struct {
 	URL            string
 	Author         string
 	Repo           string
+	HeadRefOID     string
 	CreatedAt      time.Time
 	WaitSince      time.Time
 	Approvals      int

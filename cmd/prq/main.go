@@ -115,6 +115,11 @@ func main() {
 	}
 
 	checkDep("gh")
+	go func() {
+		if err := prq.PrefetchUser(); err != nil && prq.DebugEnabled {
+			log.Printf("[prefetch] get_user failed: %v", err)
+		}
+	}()
 
 	_, _ = os.Stdout.WriteString(ui.PrePaint)
 

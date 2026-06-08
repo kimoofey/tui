@@ -1,6 +1,7 @@
 package prq
 
 import (
+	"log"
 	"time"
 
 	"charm.land/bubbles/v2/help"
@@ -64,6 +65,8 @@ type Model struct {
 
 	width  int
 	height int
+
+	enrichCache enrichmentCache
 }
 
 // NewModel constructs the initial Model with an empty table and running spinner.
@@ -97,6 +100,7 @@ func NewModel(cfg Config) Model {
 		keys:    keys,
 		cfg:     cfg,
 		loading: true,
+		enrichCache: newEnrichmentCache(),
 	}
 }
 
@@ -136,6 +140,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.myPRs = msg.MyPRs
 		m.enriching = false
 		m.enriched = 0
+		cachedApplied := 0
+		misses := []PullRequest(nil)
+		m.reviewPRs, cachedApplied, misses = applyCachedEnrichment(m.reviewPRs, m.enrichCache)
+		m.enriched = cachedApplied
+		updateCacheFromPRs(&m.enrichCache, m.reviewPRs)
+		if DebugEnabled {
+			log.Printf("[cache] hits=%d misses=%d total=%d", cachedApplied, len(misses), len(m.reviewPRs))
+		}
 		if msg.Err != nil {
 			m.fetchErr = msg.Err
 			m.statusMsg = styleError.Render("✗ " + msg.Err.Error())
@@ -145,17 +157,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m = m.resized()
 		m.table.GotoTop()
-		if len(m.reviewPRs) > 0 {
+		if len(misses) > 0 {
 			m.enriching = true
 			cmds = append(cmds, m.spinner.Tick)
-			cmds = append(cmds, enrichCmd(m.cfg, m.reviewPRs))
+			cmds = append(cmds, enrichCmd(m.cfg, misses))
 		}
 
 	case enrichDoneMsg:
 		updated, count := mergeEnrichment(m.reviewPRs, msg.Updates)
 		m.reviewPRs = updated
-		m.enriched = count
+		m.enriched += count
 		m.enriching = false
+		updateCacheFromPRs(&m.enrichCache, m.reviewPRs)
 		if msg.Err != nil {
 			m.statusMsg = styleError.Render("✗ enrich: " + msg.Err.Error())
 		} else if m.statusMsg == "" {

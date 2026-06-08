@@ -13,6 +13,7 @@ func FetchAll(_ Config) FetchResult {
 			Number:    142,
 			Title:     "feat: add rate limiting middleware to API gateway",
 			URL:       "https://github.com/acme/platform/pull/142",
+			HeadRefOID: "sha142",
 			Author:    "jsmith",
 			Repo:      "acme/platform",
 			CreatedAt: mockNow.AddDate(0, 0, -2),
@@ -26,6 +27,7 @@ func FetchAll(_ Config) FetchResult {
 			Number:    138,
 			Title:     "fix: resolve race condition in session store",
 			URL:       "https://github.com/acme/platform/pull/138",
+			HeadRefOID: "sha138",
 			Author:    "mlopez",
 			Repo:      "acme/platform",
 			CreatedAt: mockNow.AddDate(0, 0, -4),
@@ -39,6 +41,7 @@ func FetchAll(_ Config) FetchResult {
 			Number:    77,
 			Title:     "refactor: extract auth logic into separate service",
 			URL:       "https://github.com/acme/backend/pull/77",
+			HeadRefOID: "sha77",
 			Author:    "achen",
 			Repo:      "acme/backend",
 			CreatedAt: mockNow.AddDate(0, 0, -1),
@@ -52,6 +55,7 @@ func FetchAll(_ Config) FetchResult {
 			Number:    203,
 			Title:     "chore: bump Go toolchain to 1.24",
 			URL:       "https://github.com/acme/infra/pull/203",
+			HeadRefOID: "sha203",
 			Author:    "renovate[bot]",
 			Repo:      "acme/infra",
 			CreatedAt: mockNow.AddDate(0, 0, -6),
@@ -65,6 +69,7 @@ func FetchAll(_ Config) FetchResult {
 			Number:    91,
 			Title:     "feat: add prometheus metrics endpoint",
 			URL:       "https://github.com/acme/backend/pull/91",
+			HeadRefOID: "sha91",
 			Author:    "dpark",
 			Repo:      "acme/backend",
 			CreatedAt: mockNow.AddDate(0, 0, -3),
@@ -81,6 +86,7 @@ func FetchAll(_ Config) FetchResult {
 			Number:         55,
 			Title:          "feat: implement VHS screenshot automation",
 			URL:            "https://github.com/acme/tui/pull/55",
+			HeadRefOID:     "sha55",
 			Author:         "you",
 			Repo:           "acme/tui",
 			CreatedAt:      mockNow.AddDate(0, 0, -1),
@@ -93,6 +99,7 @@ func FetchAll(_ Config) FetchResult {
 			Number:         48,
 			Title:          "wip: spike on bubble tea v2 migration",
 			URL:            "https://github.com/acme/tui/pull/48",
+			HeadRefOID:     "sha48",
 			Author:         "you",
 			Repo:           "acme/tui",
 			CreatedAt:      mockNow.AddDate(0, 0, -7),
@@ -105,6 +112,7 @@ func FetchAll(_ Config) FetchResult {
 			Number:         312,
 			Title:          "fix: handle nil pointer in config loader",
 			URL:            "https://github.com/acme/platform/pull/312",
+			HeadRefOID:     "sha312",
 			Author:         "you",
 			Repo:           "acme/platform",
 			CreatedAt:      mockNow.AddDate(0, 0, -3),
@@ -125,3 +133,5 @@ func EnrichReviewPRs(_ Config, reviewPRs []PullRequest) enrichResult {
 	}
 	return enrichResult{Updates: updates}
 }
+
+func PrefetchUser() error { return nil }
