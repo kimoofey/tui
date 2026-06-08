@@ -18,6 +18,7 @@ const (
 )
 
 type PullRequest struct {
+	NodeID         string
 	Number         int
 	Title          string
 	URL            string
@@ -34,6 +35,7 @@ type PullRequest struct {
 	Bucket         Bucket
 	IsDraft        bool
 	ReviewDecision string
+	Enriched       bool
 }
 
 type PRFile struct {

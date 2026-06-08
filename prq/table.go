@@ -71,12 +71,26 @@ func PRsToRows(prs []PullRequest, minApprovals int, estimateBuckets []int) []tab
 			ui.Truncate(pr.RepoShort(), widthRepo),
 			pr.Title,
 			"@" + ui.Truncate(pr.Author, widthAuthor-1),
-			pr.WaitTime(),
-			EstimateReviewTime(pr.Author, pr.Title, pr.Additions, pr.Deletions, pr.ChangedFiles, pr.Files, pr.FilesTruncated, estimateBuckets),
+			waitCell(pr),
+			estimateCell(pr, estimateBuckets),
 			approvalStr,
 		}
 	}
 	return rows
+}
+
+func waitCell(pr PullRequest) string {
+	if !pr.Enriched {
+		return "..."
+	}
+	return pr.WaitTime()
+}
+
+func estimateCell(pr PullRequest, estimateBuckets []int) string {
+	if !pr.Enriched {
+		return "..."
+	}
+	return EstimateReviewTime(pr.Author, pr.Title, pr.Additions, pr.Deletions, pr.ChangedFiles, pr.Files, pr.FilesTruncated, estimateBuckets)
 }
 
 const (

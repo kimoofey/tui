@@ -62,6 +62,7 @@ func TestPRsToRows(t *testing.T) {
 			CreatedAt: now.Add(-2 * 24 * time.Hour),
 			Approvals: 1,
 			Bucket:    BucketDirect,
+			Enriched:  false,
 		},
 		{
 			Number:    2,
@@ -71,6 +72,7 @@ func TestPRsToRows(t *testing.T) {
 			CreatedAt: now.Add(-1 * time.Hour),
 			Approvals: 2,
 			Bucket:    BucketTeam,
+			Enriched:  true,
 		},
 	}
 
@@ -86,6 +88,12 @@ func TestPRsToRows(t *testing.T) {
 	}
 	if rows[1][6] != "2/2 ✓" {
 		t.Errorf("row[1] approvals = %q; want %q", rows[1][6], "2/2 ✓")
+	}
+	if rows[0][4] != "..." {
+		t.Errorf("row[0] pending = %q; want %q", rows[0][4], "...")
+	}
+	if rows[0][5] != "..." {
+		t.Errorf("row[0] estimate = %q; want %q", rows[0][5], "...")
 	}
 	if rows[0][6] != "1/2" {
 		t.Errorf("row[0] approvals = %q; want %q", rows[0][6], "1/2")

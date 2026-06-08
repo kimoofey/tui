@@ -84,6 +84,8 @@ func (m Model) renderStatus() string {
 	switch {
 	case m.loading:
 		return normal.Render("Fetching PRs…")
+	case m.enriching:
+		return normal.Render(fmt.Sprintf("%s Enriching details…", m.spinner.View()))
 	case m.statusMsg != "":
 		return m.statusMsg
 	default:

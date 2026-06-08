@@ -14,6 +14,11 @@ import (
 	"time"
 )
 
+const (
+	reviewTimelineEventWindow = 10
+	reviewFilesPageSize       = 50
+)
+
 type ghAuthor struct {
 	TypeName string `json:"__typename"`
 	Login    string `json:"login"`
@@ -48,6 +53,7 @@ type ghPRFile struct {
 }
 
 type ghPRNode struct {
+	ID                string   `json:"id"`
 	Number            int      `json:"number"`
 	Title             string   `json:"title"`
 	URL               string   `json:"url"`
@@ -116,13 +122,14 @@ type pagedSearchResponse struct {
 	} `json:"data"`
 }
 
-// queryReviewPRs fetches review-queue PRs with cursor pagination.
+// queryReviewPRsLight fetches review-queue PRs with cursor pagination.
 // Used by both fetchAssignedPRs (direct/team assignments) and fetchWatchPRs.
-const queryReviewPRs = `
+const queryReviewPRsLight = `
 query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String!, $cursor: String) {
   search(query: $searchQuery, type: ISSUE, first: $pageSize, after: $cursor) {
     nodes {
       ... on PullRequest {
+        id
         number
         title
         url
@@ -137,10 +144,45 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
             }
           }
         }
-        # Filtered by REVIEW_REQUESTED_EVENT first, then paginated. last:30 keeps
-        # payload small while covering almost all real-world re-request patterns.
-        # If no matching event is found, prq falls back to createdAt.
-        timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 30) {
+        latestOpinionatedReviews(first: $maxReviewers) {
+          nodes {
+            state
+            author { login }
+          }
+        }
+        additions
+        deletions
+        changedFiles
+        viewerReview: reviews(first: 1, author: $user) {
+          nodes { state }
+        }
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}`
+
+var queryReviewPRsEnrich = fmt.Sprintf(`
+query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String!, $cursor: String) {
+  search(query: $searchQuery, type: ISSUE, first: $pageSize, after: $cursor) {
+    nodes {
+      ... on PullRequest {
+        id
+        number
+        title
+        url
+        author { __typename login }
+        createdAt
+        repository { nameWithOwner }
+        reviewRequests(first: $maxReviewers) {
+          nodes {
+            requestedReviewer {
+              ... on User { login }
+              ... on Team { slug }
+            }
+          }
+        }
+        timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: %d) {
           nodes {
             ... on ReviewRequestedEvent {
               createdAt
@@ -160,7 +202,7 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
         additions
         deletions
         changedFiles
-        files(first: 100) {
+        files(first: %d) {
           nodes {
             path
             additions
@@ -175,7 +217,10 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
     }
     pageInfo { hasNextPage endCursor }
   }
-}`
+}`,
+	reviewTimelineEventWindow,
+	reviewFilesPageSize,
+)
 
 // queryMyPRs fetches open PRs authored by the current user, with review decision
 // and draft status. No date filter — users may have long-lived own PRs.
@@ -203,7 +248,12 @@ query($searchQuery: String!, $pageSize: Int!, $cursor: String) {
 // and S3 (user's own PRs) in 3 parallel goroutines, then merges with dedup.
 // S1 results take priority over Watch in case of overlap.
 func FetchAll(cfg Config) FetchResult {
+	totalStart := time.Now()
+	defer debugDuration("fetch.total", totalStart)
+
+	userStart := time.Now()
 	user, err := getUser()
+	debugDuration("fetch.get_user", userStart)
 	if err != nil {
 		return FetchResult{Err: fmt.Errorf("getting GitHub user: %w", err)}
 	}
@@ -219,15 +269,21 @@ func FetchAll(cfg Config) FetchResult {
 	myCh := make(chan partial, 1)
 
 	go func() {
+		start := time.Now()
 		prs, err := fetchAssignedPRs(cfg, user, dateThreshold)
+		debugDuration("fetch.assigned.total", start)
 		assignedCh <- partial{prs, err}
 	}()
 	go func() {
+		start := time.Now()
 		prs, err := fetchWatchPRs(cfg, user, dateThreshold)
+		debugDuration("fetch.watch.total", start)
 		watchCh <- partial{prs, err}
 	}()
 	go func() {
+		start := time.Now()
 		prs, err := fetchMyPRs(cfg)
+		debugDuration("fetch.my_prs.total", start)
 		myCh <- partial{prs, err}
 	}()
 
@@ -250,6 +306,7 @@ func FetchAll(cfg Config) FetchResult {
 			reviewPRs = append(reviewPRs, pr)
 		}
 	}
+	reviewPRs = groupReviewPRs(reviewPRs)
 
 	if DebugEnabled {
 		log.Printf("[fetch] assigned=%d watch=%d myPRs=%d reviewPRs(merged)=%d",
@@ -284,15 +341,90 @@ func FetchAll(cfg Config) FetchResult {
 	return FetchResult{ReviewPRs: reviewPRs, MyPRs: my.prs, Err: fetchErr}
 }
 
+func EnrichReviewPRs(cfg Config, reviewPRs []PullRequest) enrichResult {
+	totalStart := time.Now()
+	defer debugDuration("enrich.total", totalStart)
+
+	userStart := time.Now()
+	user, err := getUser()
+	debugDuration("enrich.get_user", userStart)
+	if err != nil {
+		return enrichResult{Err: fmt.Errorf("getting GitHub user: %w", err)}
+	}
+
+	dateThreshold := time.Now().AddDate(0, 0, -cfg.DaysAgo).Format("2006-01-02")
+
+	type partial struct {
+		prs []PullRequest
+		err error
+	}
+	assignedCh := make(chan partial, 1)
+	watchCh := make(chan partial, 1)
+
+	go func() {
+		start := time.Now()
+		prs, err := fetchAssignedPRsEnriched(cfg, user, dateThreshold)
+		debugDuration("enrich.assigned.total", start)
+		assignedCh <- partial{prs, err}
+	}()
+	go func() {
+		start := time.Now()
+		prs, err := fetchWatchPRsEnriched(cfg, user, dateThreshold)
+		debugDuration("enrich.watch.total", start)
+		watchCh <- partial{prs, err}
+	}()
+
+	assigned := <-assignedCh
+	watch := <-watchCh
+
+	updates := make(map[string]PullRequest)
+	allowed := make(map[string]struct{}, len(reviewPRs))
+	for _, pr := range reviewPRs {
+		if pr.URL == "" {
+			continue
+		}
+		allowed[pr.URL] = struct{}{}
+	}
+
+	for _, pr := range assigned.prs {
+		if _, ok := allowed[pr.URL]; ok {
+			updates[pr.URL] = pr
+		}
+	}
+	for _, pr := range watch.prs {
+		if _, ok := allowed[pr.URL]; ok {
+			if _, exists := updates[pr.URL]; !exists {
+				updates[pr.URL] = pr
+			}
+		}
+	}
+
+	var errs []string
+	if assigned.err != nil {
+		errs = append(errs, assigned.err.Error())
+	}
+	if watch.err != nil {
+		errs = append(errs, watch.err.Error())
+	}
+	if len(errs) > 0 {
+		return enrichResult{Updates: updates, Err: errors.New(strings.Join(errs, "; "))}
+	}
+
+	return enrichResult{Updates: updates}
+}
+
 // fetchReviewNodes runs queryReviewPRs with cursor pagination and returns the
 // raw nodes. Used by both fetchAssignedPRs and fetchWatchPRs.
-func fetchReviewNodes(cfg Config, user, searchQuery string) ([]ghPRNode, error) {
+func fetchReviewNodes(cfg Config, user, stage, searchQuery, query string) ([]ghPRNode, error) {
 	var allNodes []ghPRNode
 	cursor := ""
+	pagesFetched := 0
 
 	for page := 0; page < cfg.MaxPages; page++ {
+		pagesFetched++
+		pageStart := time.Now()
 		args := []string{
-			"-f", "query=" + queryReviewPRs,
+			"-f", "query=" + query,
 			"-f", "searchQuery=" + searchQuery,
 			"-f", "user=" + user,
 			"-F", fmt.Sprintf("pageSize=%d", cfg.PageSize),
@@ -304,6 +436,7 @@ func fetchReviewNodes(cfg Config, user, searchQuery string) ([]ghPRNode, error) 
 
 		out, err := runGraphQL(args)
 		if err != nil {
+			debugDuration(fmt.Sprintf("%s.page_%d", stage, page+1), pageStart)
 			return nil, err
 		}
 
@@ -312,8 +445,10 @@ func fetchReviewNodes(cfg Config, user, searchQuery string) ([]ghPRNode, error) 
 			return nil, fmt.Errorf("parse response: %w", err)
 		}
 		if err := resp.graphQLErr(); err != nil {
+			debugDuration(fmt.Sprintf("%s.page_%d", stage, page+1), pageStart)
 			return nil, err
 		}
+		debugDuration(fmt.Sprintf("%s.page_%d", stage, page+1), pageStart)
 
 		allNodes = append(allNodes, resp.Data.Search.Nodes...)
 
@@ -321,6 +456,9 @@ func fetchReviewNodes(cfg Config, user, searchQuery string) ([]ghPRNode, error) 
 			break
 		}
 		cursor = resp.Data.Search.PageInfo.EndCursor
+	}
+	if DebugEnabled {
+		log.Printf("[timing] %s.pages=%d nodes=%d", stage, pagesFetched, len(allNodes))
 	}
 
 	return allNodes, nil
@@ -332,7 +470,7 @@ func fetchAssignedPRs(cfg Config, user, dateThreshold string) ([]PullRequest, er
 		user, dateThreshold,
 	)
 
-	nodes, err := fetchReviewNodes(cfg, user, searchQuery)
+	nodes, err := fetchReviewNodes(cfg, user, "fetch.assigned", searchQuery, queryReviewPRsLight)
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +507,7 @@ func fetchWatchPRs(cfg Config, user, dateThreshold string) ([]PullRequest, error
 		strings.Join(repoParts, " "), dateThreshold, user,
 	)
 
-	nodes, err := fetchReviewNodes(cfg, user, searchQuery)
+	nodes, err := fetchReviewNodes(cfg, user, "fetch.watch", searchQuery, queryReviewPRsLight)
 	if err != nil {
 		return nil, err
 	}
@@ -392,6 +530,74 @@ func fetchWatchPRs(cfg Config, user, dateThreshold string) ([]PullRequest, error
 	return prs, nil
 }
 
+func fetchAssignedPRsEnriched(cfg Config, user, dateThreshold string) ([]PullRequest, error) {
+	searchQuery := fmt.Sprintf(
+		"is:pr is:open review-requested:@me -author:%s -draft:true created:>=%s sort:created-asc",
+		user, dateThreshold,
+	)
+
+	nodes, err := fetchReviewNodes(cfg, user, "enrich.assigned", searchQuery, queryReviewPRsEnrich)
+	if err != nil {
+		return nil, err
+	}
+
+	prs := make([]PullRequest, 0, len(nodes))
+	for _, node := range nodes {
+		if node.Number == 0 {
+			continue
+		}
+		approvals, userReviewed := reviewCounts(node)
+		if !shouldInclude(node, cfg, approvals, userReviewed) {
+			continue
+		}
+		pr, err := convertPR(node, bucketForNode(node, user), approvals, user)
+		if err != nil {
+			continue
+		}
+		pr.Enriched = true
+		prs = append(prs, pr)
+	}
+	return prs, nil
+}
+
+func fetchWatchPRsEnriched(cfg Config, user, dateThreshold string) ([]PullRequest, error) {
+	if len(cfg.WatchRepos) == 0 {
+		return nil, nil
+	}
+
+	var repoParts []string
+	for _, r := range cfg.WatchRepos {
+		repoParts = append(repoParts, "repo:"+r)
+	}
+	searchQuery := fmt.Sprintf(
+		"%s is:pr is:open created:>=%s -author:%s -draft:true sort:created-asc",
+		strings.Join(repoParts, " "), dateThreshold, user,
+	)
+
+	nodes, err := fetchReviewNodes(cfg, user, "enrich.watch", searchQuery, queryReviewPRsEnrich)
+	if err != nil {
+		return nil, err
+	}
+
+	prs := make([]PullRequest, 0, len(nodes))
+	for _, node := range nodes {
+		if node.Number == 0 {
+			continue
+		}
+		approvals, userReviewed := reviewCounts(node)
+		if !shouldInclude(node, cfg, approvals, userReviewed) {
+			continue
+		}
+		pr, err := convertPR(node, BucketWatch, approvals, user)
+		if err != nil {
+			continue
+		}
+		pr.Enriched = true
+		prs = append(prs, pr)
+	}
+	return prs, nil
+}
+
 func fetchMyPRs(cfg Config) ([]PullRequest, error) {
 	searchQuery := "is:pr is:open author:@me sort:created-asc"
 
@@ -399,6 +605,7 @@ func fetchMyPRs(cfg Config) ([]PullRequest, error) {
 	cursor := ""
 
 	for page := 0; page < cfg.MaxPages; page++ {
+		pageStart := time.Now()
 		args := []string{
 			"-f", "query=" + queryMyPRs,
 			"-f", "searchQuery=" + searchQuery,
@@ -410,6 +617,7 @@ func fetchMyPRs(cfg Config) ([]PullRequest, error) {
 
 		out, err := runGraphQL(args)
 		if err != nil {
+			debugDuration(fmt.Sprintf("fetch.my_prs.page_%d", page+1), pageStart)
 			return nil, err
 		}
 
@@ -418,8 +626,10 @@ func fetchMyPRs(cfg Config) ([]PullRequest, error) {
 			return nil, fmt.Errorf("parse response: %w", err)
 		}
 		if err := resp.graphQLErr(); err != nil {
+			debugDuration(fmt.Sprintf("fetch.my_prs.page_%d", page+1), pageStart)
 			return nil, err
 		}
+		debugDuration(fmt.Sprintf("fetch.my_prs.page_%d", page+1), pageStart)
 
 		allNodes = append(allNodes, resp.Data.Search.Nodes...)
 
@@ -449,6 +659,13 @@ func fetchMyPRs(cfg Config) ([]PullRequest, error) {
 	}
 
 	return prs, nil
+}
+
+func debugDuration(stage string, start time.Time) {
+	if !DebugEnabled {
+		return
+	}
+	log.Printf("[timing] %s=%s", stage, time.Since(start).Round(time.Millisecond))
 }
 
 var (
@@ -536,6 +753,7 @@ func convertPR(node ghPRNode, bucket Bucket, approvals int, user string) (PullRe
 		files = append(files, PRFile{Path: f.Path, Additions: f.Additions, Deletions: f.Deletions})
 	}
 	return PullRequest{
+		NodeID:       node.ID,
 		Number:       node.Number,
 		Title:        node.Title,
 		URL:          node.URL,
@@ -550,6 +768,7 @@ func convertPR(node ghPRNode, bucket Bucket, approvals int, user string) (PullRe
 		Files:        files,
 		FilesTruncated: node.Files.PageInfo.HasNextPage,
 		Bucket:       bucket,
+		Enriched:     len(node.Files.Nodes) > 0 || node.Files.PageInfo.HasNextPage || len(node.TimelineItems.Nodes) > 0,
 	}, nil
 }
 
@@ -611,6 +830,7 @@ func convertMyPR(node ghPRNode) (PullRequest, error) {
 		return PullRequest{}, fmt.Errorf("parsing createdAt %q: %w", node.CreatedAt, err)
 	}
 	return PullRequest{
+		NodeID:         node.ID,
 		Number:         node.Number,
 		Title:          node.Title,
 		URL:            node.URL,

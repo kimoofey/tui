@@ -16,6 +16,9 @@ import (
 // fetchDoneMsg is sent on the Bubble Tea bus when FetchAll completes.
 type fetchDoneMsg FetchResult
 
+// enrichDoneMsg is sent when background enrichment completes.
+type enrichDoneMsg enrichResult
+
 const (
 	initialTermWidth  = 80
 	initialTermHeight = 20
@@ -27,6 +30,15 @@ func fetchCmd(cfg Config) tea.Cmd {
 	return func() tea.Msg {
 		result := FetchAll(cfg)
 		return fetchDoneMsg(result)
+	}
+}
+
+func enrichCmd(cfg Config, reviewPRs []PullRequest) tea.Cmd {
+	reviewCopy := make([]PullRequest, len(reviewPRs))
+	copy(reviewCopy, reviewPRs)
+	return func() tea.Msg {
+		result := EnrichReviewPRs(cfg, reviewCopy)
+		return enrichDoneMsg(result)
 	}
 }
 
@@ -45,6 +57,8 @@ type Model struct {
 	lastFetched time.Time
 
 	loading   bool
+	enriching bool
+	enriched  int
 	fetchErr  error
 	statusMsg string // non-empty overrides the default status line
 
@@ -120,6 +134,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastFetched = time.Now()
 		m.reviewPRs = msg.ReviewPRs
 		m.myPRs = msg.MyPRs
+		m.enriching = false
+		m.enriched = 0
 		if msg.Err != nil {
 			m.fetchErr = msg.Err
 			m.statusMsg = styleError.Render("✗ " + msg.Err.Error())
@@ -129,12 +145,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m = m.resized()
 		m.table.GotoTop()
+		if len(m.reviewPRs) > 0 {
+			m.enriching = true
+			cmds = append(cmds, m.spinner.Tick)
+			cmds = append(cmds, enrichCmd(m.cfg, m.reviewPRs))
+		}
+
+	case enrichDoneMsg:
+		updated, count := mergeEnrichment(m.reviewPRs, msg.Updates)
+		m.reviewPRs = updated
+		m.enriched = count
+		m.enriching = false
+		if msg.Err != nil {
+			m.statusMsg = styleError.Render("✗ enrich: " + msg.Err.Error())
+		} else if m.statusMsg == "" {
+			m.statusMsg = ""
+		}
+		m = m.resized()
 
 	case openLaunchErrMsg:
 		m.statusMsg = styleError.Render("✗ open: " + msg.Err.Error())
 
 	case spinner.TickMsg:
-		if m.loading {
+		if m.loading || m.enriching {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			cmds = append(cmds, cmd)
@@ -145,8 +178,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
 
-		case key.Matches(msg, m.keys.Refresh) && !m.loading:
+		case key.Matches(msg, m.keys.Refresh) && !m.loading && !m.enriching:
 			m.loading = true
+			m.enriching = false
+			m.enriched = 0
 			m.statusMsg = ""
 			return m, tea.Batch(m.spinner.Tick, fetchCmd(m.cfg))
 
