@@ -118,10 +118,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
+		prevCursor := m.table.Cursor()
+		prevURL := m.currentSelectedURL()
 		m.width = msg.Width
 		m.height = msg.Height
 		m.help.SetWidth(msg.Width - 2)
 		m = m.resized()
+		m = m.restoreSelection(prevCursor, prevURL)
 
 	case tea.MouseWheelMsg:
 		if !m.loading {
@@ -134,6 +137,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case fetchDoneMsg:
+		prevCursor := m.table.Cursor()
+		prevURL := m.currentSelectedURL()
 		m.loading = false
 		m.lastFetched = time.Now()
 		m.reviewPRs = msg.ReviewPRs
@@ -156,7 +161,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = ""
 		}
 		m = m.resized()
-		m.table.GotoTop()
+		m = m.restoreSelection(prevCursor, prevURL)
 		if len(misses) > 0 {
 			m.enriching = true
 			cmds = append(cmds, m.spinner.Tick)
@@ -164,6 +169,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case enrichDoneMsg:
+		prevCursor := m.table.Cursor()
+		prevURL := m.currentSelectedURL()
 		updated, count := mergeEnrichment(m.reviewPRs, msg.Updates)
 		m.reviewPRs = updated
 		m.enriched += count
@@ -175,6 +182,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = ""
 		}
 		m = m.resized()
+		m = m.restoreSelection(prevCursor, prevURL)
 
 	case openLaunchErrMsg:
 		m.statusMsg = styleError.Render("✗ open: " + msg.Err.Error())
@@ -216,13 +224,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.Help):
+			prevCursor := m.table.Cursor()
+			prevURL := m.currentSelectedURL()
 			m.help.ShowAll = !m.help.ShowAll
 			m = m.resized()
+			m = m.restoreSelection(prevCursor, prevURL)
 
 		case key.Matches(msg, m.keys.Esc):
 			if m.help.ShowAll {
+				prevCursor := m.table.Cursor()
+				prevURL := m.currentSelectedURL()
 				m.help.ShowAll = false
 				m = m.resized()
+				m = m.restoreSelection(prevCursor, prevURL)
 			}
 
 		default:
@@ -275,6 +289,39 @@ func (m Model) resized() Model {
 	m.table.SetColumns(m.currentColumns())
 	m.table.SetRows(m.currentRows())
 	m.table.SetStyles(makeTableStyles())
+	return m
+}
+
+func (m Model) currentSelectedURL() string {
+	prs := m.currentPRs()
+	idx := m.table.Cursor()
+	if idx >= 0 && idx < len(prs) {
+		return prs[idx].URL
+	}
+	return ""
+}
+
+func (m Model) restoreSelection(prevCursor int, prevURL string) Model {
+	prs := m.currentPRs()
+	if len(prs) == 0 {
+		m.table.SetCursor(0)
+		return m
+	}
+	if prevURL != "" {
+		for i, pr := range prs {
+			if pr.URL == prevURL {
+				m.table.SetCursor(i)
+				return m
+			}
+		}
+	}
+	if prevCursor < 0 {
+		prevCursor = 0
+	}
+	if prevCursor >= len(prs) {
+		prevCursor = len(prs) - 1
+	}
+	m.table.SetCursor(prevCursor)
 	return m
 }
 
