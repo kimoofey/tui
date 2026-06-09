@@ -98,7 +98,6 @@ Full reference with defaults — scaffold with `prq --init`:
 ```yaml
 watch_repos: [] # repos to watch for volunteer reviews
 days_ago: 30 # how far back to look across all sources
-min_approvals: 2 # skip PRs that already have this many approvals
 skip_already_reviewed: true # skip PRs you've already left a review on
 skip_bots: true # skip PRs authored by bots (Dependabot, github-actions, etc.)
 estimate_time_buckets: [1, 2, 3, 5, 8, 12, 20, 30, 45, 60] # minute buckets for Time column labels

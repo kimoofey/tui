@@ -60,11 +60,11 @@ type ghPRNode struct {
 	HeadRefOID        string   `json:"headRefOid"`
 	Author            ghAuthor `json:"author"`
 	CreatedAt         string   `json:"createdAt"`
+	ReviewDecision    string   `json:"reviewDecision"`
 	Additions         int      `json:"additions"`
 	Deletions         int      `json:"deletions"`
 	ChangedFiles      int      `json:"changedFiles"`
 	IsDraft           bool     `json:"isDraft"`
-	ReviewDecision    string   `json:"reviewDecision"`
 	StatusCheckRollup *struct {
 		State string `json:"state"`
 	} `json:"statusCheckRollup"`
@@ -78,7 +78,7 @@ type ghPRNode struct {
 		Nodes []ghReviewRequestedEvent `json:"nodes"`
 	} `json:"timelineItems"`
 	Files struct {
-		Nodes []ghPRFile `json:"nodes"`
+		Nodes    []ghPRFile `json:"nodes"`
 		PageInfo struct {
 			HasNextPage bool `json:"hasNextPage"`
 		} `json:"pageInfo"`
@@ -152,6 +152,7 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
             author { login }
           }
         }
+        reviewDecision
         additions
         deletions
         changedFiles
@@ -202,6 +203,7 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
             author { login }
           }
         }
+        reviewDecision
         additions
         deletions
         changedFiles
@@ -316,13 +318,9 @@ func FetchAll(cfg Config) FetchResult {
 		log.Printf("[fetch] assigned=%d watch=%d myPRs=%d reviewPRs(merged)=%d",
 			len(assigned.prs), len(watch.prs), len(my.prs), len(reviewPRs))
 		for _, pr := range reviewPRs {
-			approvalStr := fmt.Sprintf("%d/%d", pr.Approvals, cfg.MinApprovals)
-			if pr.Approvals >= cfg.MinApprovals {
-				approvalStr += " ✓"
-			}
-			log.Printf("[pr] #%d %s %s %q @%s %s %s",
+			log.Printf("[pr] #%d %s %s %q @%s %s",
 				pr.Number, bucketLabel(pr.Bucket), pr.RepoShort(),
-				pr.Title, pr.Author, pr.Age(), approvalStr)
+				pr.Title, pr.Author, pr.Age())
 		}
 	}
 
@@ -485,7 +483,7 @@ func fetchAssignedPRs(cfg Config, user, dateThreshold string) ([]PullRequest, er
 			continue // non-PR search hit
 		}
 		approvals, userReviewed := reviewCounts(node)
-		if !shouldInclude(node, cfg, approvals, userReviewed) {
+		if !shouldInclude(node, cfg, userReviewed) {
 			continue
 		}
 		pr, err := convertPR(node, bucketForNode(node, user), approvals, user)
@@ -519,7 +517,7 @@ func fetchWatchPRs(cfg Config, user, dateThreshold string) ([]PullRequest, error
 			continue
 		}
 		approvals, userReviewed := reviewCounts(node)
-		if !shouldInclude(node, cfg, approvals, userReviewed) {
+		if !shouldInclude(node, cfg, userReviewed) {
 			continue
 		}
 		pr, err := convertPR(node, BucketWatch, approvals, user)
@@ -545,7 +543,7 @@ func fetchAssignedPRsEnriched(cfg Config, user, dateThreshold string) ([]PullReq
 			continue
 		}
 		approvals, userReviewed := reviewCounts(node)
-		if !shouldInclude(node, cfg, approvals, userReviewed) {
+		if !shouldInclude(node, cfg, userReviewed) {
 			continue
 		}
 		pr, err := convertPR(node, bucketForNode(node, user), approvals, user)
@@ -580,7 +578,7 @@ func fetchWatchPRsEnriched(cfg Config, user, dateThreshold string) ([]PullReques
 			continue
 		}
 		approvals, userReviewed := reviewCounts(node)
-		if !shouldInclude(node, cfg, approvals, userReviewed) {
+		if !shouldInclude(node, cfg, userReviewed) {
 			continue
 		}
 		pr, err := convertPR(node, BucketWatch, approvals, user)
@@ -679,9 +677,6 @@ func watchSearchQuery(cfg Config, user, dateThreshold string, repoParts []string
 
 func searchFilterSuffix(cfg Config) string {
 	parts := []string{}
-	if cfg.MinApprovals > 0 {
-		parts = append(parts, "-review:approved")
-	}
 	if cfg.SkipBots {
 		parts = append(parts,
 			"-author:app/dependabot",
@@ -742,14 +737,14 @@ func runGraphQL(args []string) ([]byte, error) {
 	return out, nil
 }
 
-func shouldInclude(node ghPRNode, cfg Config, approvals int, userReviewed bool) bool {
+func shouldInclude(node ghPRNode, cfg Config, userReviewed bool) bool {
 	if cfg.SkipBots && node.Author.TypeName == "Bot" {
 		return false
 	}
 	if cfg.SkipAlreadyReviewed && userReviewed {
 		return false
 	}
-	if approvals >= cfg.MinApprovals {
+	if node.ReviewDecision == "APPROVED" {
 		return false
 	}
 	return true
@@ -782,26 +777,27 @@ func convertPR(node ghPRNode, bucket Bucket, approvals int, user string) (PullRe
 	waitSince := selectWaitSince(node, bucket, user, t)
 	files := make([]PRFile, 0, len(node.Files.Nodes))
 	for _, f := range node.Files.Nodes {
-		files = append(files, PRFile{Path: f.Path, Additions: f.Additions, Deletions: f.Deletions})
+		files = append(files, PRFile(f))
 	}
 	return PullRequest{
-		NodeID:       node.ID,
-		Number:       node.Number,
-		Title:        node.Title,
-		URL:          node.URL,
-		Author:       node.Author.Login,
-		Repo:         node.Repository.NameWithOwner,
-		HeadRefOID:   node.HeadRefOID,
-		CreatedAt:    t,
-		WaitSince:    waitSince,
-		Approvals:    approvals,
-		Additions:    node.Additions,
-		Deletions:    node.Deletions,
-		ChangedFiles: node.ChangedFiles,
-		Files:        files,
+		NodeID:         node.ID,
+		Number:         node.Number,
+		Title:          node.Title,
+		URL:            node.URL,
+		Author:         node.Author.Login,
+		Repo:           node.Repository.NameWithOwner,
+		HeadRefOID:     node.HeadRefOID,
+		CreatedAt:      t,
+		WaitSince:      waitSince,
+		Approvals:      approvals,
+		ReviewDecision: node.ReviewDecision,
+		Additions:      node.Additions,
+		Deletions:      node.Deletions,
+		ChangedFiles:   node.ChangedFiles,
+		Files:          files,
 		FilesTruncated: node.Files.PageInfo.HasNextPage,
-		Bucket:       bucket,
-		Enriched:     len(node.Files.Nodes) > 0 || node.Files.PageInfo.HasNextPage || len(node.TimelineItems.Nodes) > 0,
+		Bucket:         bucket,
+		Enriched:       len(node.Files.Nodes) > 0 || node.Files.PageInfo.HasNextPage || len(node.TimelineItems.Nodes) > 0,
 	}, nil
 }
 

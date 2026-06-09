@@ -17,7 +17,6 @@ var embeddedConfig []byte
 type Config struct {
 	WatchRepos          []string `yaml:"watch_repos"`
 	DaysAgo             int      `yaml:"days_ago"`
-	MinApprovals        int      `yaml:"min_approvals"`
 	SkipAlreadyReviewed bool     `yaml:"skip_already_reviewed"`
 	SkipBots            bool     `yaml:"skip_bots"`
 	EstimateTimeBuckets []int    `yaml:"estimate_time_buckets"`
@@ -31,7 +30,6 @@ func defaultConfig() Config {
 	return Config{
 		WatchRepos:          []string{},
 		DaysAgo:             30,
-		MinApprovals:        2,
 		SkipAlreadyReviewed: true,
 		SkipBots:            true,
 		EstimateTimeBuckets: defaultEstimateTimeBuckets(),

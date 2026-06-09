@@ -14,9 +14,6 @@ watch_repos:
 # How far back to look for open PRs across all sources (in days).
 days_ago: 30
 
-# Skip PRs that already have this many approvals.
-min_approvals: 2
-
 # Skip PRs you've already left any review on.
 skip_already_reviewed: true
 

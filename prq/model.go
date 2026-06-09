@@ -94,12 +94,12 @@ func NewModel(cfg Config) Model {
 	}
 
 	return Model{
-		table:   t,
-		spinner: s,
-		help:    h,
-		keys:    keys,
-		cfg:     cfg,
-		loading: true,
+		table:       t,
+		spinner:     s,
+		help:        h,
+		keys:        keys,
+		cfg:         cfg,
+		loading:     true,
 		enrichCache: newEnrichmentCache(),
 	}
 }
@@ -341,7 +341,7 @@ func (m Model) currentColumns() []table.Column {
 
 func (m Model) currentRows() []table.Row {
 	if m.currentTab == 0 {
-		return PRsToRows(m.reviewPRs, m.cfg.MinApprovals, m.cfg.EstimateTimeBuckets)
+		return PRsToRows(m.reviewPRs, m.cfg.EstimateTimeBuckets)
 	}
 	return MyPRsToRows(m.myPRs)
 }

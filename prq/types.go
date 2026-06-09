@@ -28,6 +28,7 @@ type PullRequest struct {
 	CreatedAt      time.Time
 	WaitSince      time.Time
 	Approvals      int
+	ReviewDecision string
 	Additions      int
 	Deletions      int
 	ChangedFiles   int
@@ -35,14 +36,13 @@ type PullRequest struct {
 	FilesTruncated bool
 	Bucket         Bucket
 	IsDraft        bool
-	ReviewDecision string
 	Enriched       bool
 }
 
 type PRFile struct {
-	Path      string
-	Additions int
-	Deletions int
+	Path      string `json:"path"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
 }
 
 func (pr PullRequest) Age() string {

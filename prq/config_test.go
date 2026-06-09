@@ -12,9 +12,6 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.DaysAgo != 30 {
 		t.Errorf("DaysAgo = %d; want 30", cfg.DaysAgo)
 	}
-	if cfg.MinApprovals != 2 {
-		t.Errorf("MinApprovals = %d; want 2", cfg.MinApprovals)
-	}
 	if !cfg.SkipAlreadyReviewed {
 		t.Error("SkipAlreadyReviewed = false; want true")
 	}
@@ -46,7 +43,6 @@ func TestMergeYAML_OverridesFields(t *testing.T) {
 	path := filepath.Join(dir, "config.yaml")
 
 	yaml := `days_ago: 14
-min_approvals: 3
 skip_bots: false
 `
 	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
@@ -60,9 +56,6 @@ skip_bots: false
 
 	if cfg.DaysAgo != 14 {
 		t.Errorf("DaysAgo = %d; want 14", cfg.DaysAgo)
-	}
-	if cfg.MinApprovals != 3 {
-		t.Errorf("MinApprovals = %d; want 3", cfg.MinApprovals)
 	}
 	if cfg.SkipBots {
 		t.Error("SkipBots = true; want false")

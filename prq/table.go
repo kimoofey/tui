@@ -11,19 +11,19 @@ import (
 )
 
 const (
-	widthSource    = 8
-	widthRepo      = 16
-	widthAuthor    = 27
-	widthPending   = 7
-	widthApprovals = 9
-	widthEstimate  = 8
+	widthSource   = 8
+	widthRepo     = 16
+	widthAuthor   = 27
+	widthPending  = 7
+	widthReview   = 9
+	widthEstimate = 8
 
 	minTitleWidth = 12
 
 	numCols = 7
 
 	tableFixedWidth = widthSource + widthRepo +
-		widthAuthor + widthPending + widthApprovals + widthEstimate + numCols*2
+		widthAuthor + widthPending + widthReview + widthEstimate + numCols*2
 
 	borderWidth = 2
 )
@@ -41,7 +41,7 @@ func makeColumns(termWidth int) []table.Column {
 		{Title: "Author", Width: widthAuthor},
 		{Title: "Pending", Width: widthPending},
 		{Title: "Time", Width: widthEstimate},
-		{Title: "Approvals", Width: widthApprovals},
+		{Title: "Review", Width: widthReview},
 	}
 }
 
@@ -59,13 +59,9 @@ func bucketLabel(b Bucket) string {
 }
 
 // PRsToRows converts a slice of PullRequests into bubbles/table rows.
-func PRsToRows(prs []PullRequest, minApprovals int, estimateBuckets []int) []table.Row {
+func PRsToRows(prs []PullRequest, estimateBuckets []int) []table.Row {
 	rows := make([]table.Row, len(prs))
 	for i, pr := range prs {
-		approvalStr := fmt.Sprintf("%d/%d", pr.Approvals, minApprovals)
-		if pr.Approvals >= minApprovals {
-			approvalStr += " ✓"
-		}
 		rows[i] = table.Row{
 			bucketLabel(pr.Bucket),
 			ui.Truncate(pr.RepoShort(), widthRepo),
@@ -73,7 +69,7 @@ func PRsToRows(prs []PullRequest, minApprovals int, estimateBuckets []int) []tab
 			"@" + ui.Truncate(pr.Author, widthAuthor-1),
 			waitCell(pr),
 			estimateCell(pr, estimateBuckets),
-			approvalStr,
+			reviewDecisionLabel(pr.ReviewDecision),
 		}
 	}
 	return rows
