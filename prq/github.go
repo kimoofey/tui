@@ -50,6 +50,7 @@ type ghPRFile struct {
 	Path      string `json:"path"`
 	Additions int    `json:"additions"`
 	Deletions int    `json:"deletions"`
+	ChangeType string `json:"changeType"`
 }
 
 type ghPRNode struct {
@@ -212,6 +213,7 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
             path
             additions
             deletions
+            changeType
           }
           pageInfo { hasNextPage }
         }

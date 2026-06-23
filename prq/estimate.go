@@ -35,6 +35,9 @@ func estimateFromWeightedFiles(additions, deletions, changedFiles int, files []P
 	weightedLines := 0.0
 	weightedFiles := 0.0
 	for _, f := range files {
+		if isPureRename(f) {
+			continue
+		}
 		w := fileTypeWeight(f.Path)
 		weightedLines += (float64(f.Additions) + float64(f.Deletions)*deletionsWeight) * w
 		weightedFiles += fileSwitchWeight(f.Path)

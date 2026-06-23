@@ -126,5 +126,8 @@ High-level file weights:
 - lock/generated: `0.15`
 - binary/assets (`.png/.jpg/.webp/.svg/.pdf/...`): `0.0`
 
+Pure rename/move files with zero line diff (`RENAMED` and `+0/-0`) do not add
+context-switch cost.
+
 If file stats are truncated (very large PRs), prq scales cautiously or falls
 back to aggregate PR stats.

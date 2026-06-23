@@ -96,3 +96,35 @@ func TestEstimateReviewTime_TruncatedFallsBackWhenCoverageLow(t *testing.T) {
 		t.Errorf("EstimateReviewTime() = %q; want %q", got, "~60m+")
 	}
 }
+
+func TestEstimateReviewTime_PureRenamesDoNotAddContextPenalty(t *testing.T) {
+	base := []PRFile{
+		{Path: "src/core/a.ts", Additions: 120, Deletions: 30, ChangeType: "MODIFIED"},
+		{Path: "src/core/b.ts", Additions: 90, Deletions: 20, ChangeType: "MODIFIED"},
+		{Path: "src/core/c.ts", Additions: 60, Deletions: 10, ChangeType: "MODIFIED"},
+	}
+	withPureRenames := append(append([]PRFile{}, base...),
+		PRFile{Path: "src/core/moved/a.ts", Additions: 0, Deletions: 0, ChangeType: "RENAMED"},
+		PRFile{Path: "src/core/moved/b.ts", Additions: 0, Deletions: 0, ChangeType: "RENAMED"},
+	)
+
+	gotBase := EstimateReviewTime("alice", "feat: refactor", 270, 60, 3, base, false, defaultEstimateTimeBuckets())
+	gotWithPureRenames := EstimateReviewTime("alice", "feat: refactor", 270, 60, 5, withPureRenames, false, defaultEstimateTimeBuckets())
+
+	if gotWithPureRenames != gotBase {
+		t.Fatalf("Estimate with pure renames = %q; want same as base %q", gotWithPureRenames, gotBase)
+	}
+}
+
+func TestEstimateReviewTime_RenameWithEditsStillCounts(t *testing.T) {
+	files := []PRFile{
+		{Path: "src/core/a.ts", Additions: 120, Deletions: 30, ChangeType: "MODIFIED"},
+		{Path: "src/core/b.ts", Additions: 90, Deletions: 20, ChangeType: "MODIFIED"},
+		{Path: "src/core/renamed/c.ts", Additions: 40, Deletions: 12, ChangeType: "RENAMED"},
+	}
+
+	got := EstimateReviewTime("alice", "feat: refactor", 250, 62, 3, files, false, defaultEstimateTimeBuckets())
+	if got == "~1m" || got == "~2m" {
+		t.Fatalf("Estimate unexpectedly tiny for renamed+edited file: %q", got)
+	}
+}

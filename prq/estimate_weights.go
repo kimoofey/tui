@@ -53,6 +53,10 @@ func fileSwitchWeight(path string) float64 {
 	return weightFileSwitch
 }
 
+func isPureRename(file PRFile) bool {
+	return strings.EqualFold(file.ChangeType, "RENAMED") && file.Additions == 0 && file.Deletions == 0
+}
+
 func isBinaryOrAssetExt(ext string) bool {
 	switch ext {
 	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf", ".ico", ".ttf", ".woff", ".woff2", ".zip", ".jar", ".mp4", ".wav":

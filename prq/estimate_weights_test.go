@@ -33,3 +33,21 @@ func TestFileSwitchWeight_BinaryIgnored(t *testing.T) {
 		t.Fatalf("fileSwitchWeight(code) = %v; want 1", got)
 	}
 }
+
+func TestIsPureRename(t *testing.T) {
+	tests := []struct {
+		name string
+		file PRFile
+		want bool
+	}{
+		{name: "pure rename", file: PRFile{Path: "src/a.ts", ChangeType: "RENAMED", Additions: 0, Deletions: 0}, want: true},
+		{name: "rename with edits", file: PRFile{Path: "src/a.ts", ChangeType: "RENAMED", Additions: 3, Deletions: 0}, want: false},
+		{name: "modified no edits", file: PRFile{Path: "src/a.ts", ChangeType: "MODIFIED", Additions: 0, Deletions: 0}, want: false},
+	}
+
+	for _, tt := range tests {
+		if got := isPureRename(tt.file); got != tt.want {
+			t.Fatalf("%s: isPureRename() = %v; want %v", tt.name, got, tt.want)
+		}
+	}
+}

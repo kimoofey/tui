@@ -43,6 +43,7 @@ type PRFile struct {
 	Path      string `json:"path"`
 	Additions int    `json:"additions"`
 	Deletions int    `json:"deletions"`
+	ChangeType string `json:"changeType"`
 }
 
 func (pr PullRequest) Age() string {
