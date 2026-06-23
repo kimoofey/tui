@@ -746,7 +746,7 @@ func shouldInclude(node ghPRNode, cfg Config, userReviewed bool) bool {
 	if cfg.SkipAlreadyReviewed && userReviewed {
 		return false
 	}
-	if node.ReviewDecision == "APPROVED" {
+	if cfg.SkipApproved && node.ReviewDecision == "APPROVED" {
 		return false
 	}
 	return true

@@ -15,6 +15,9 @@ func TestDefaultConfig(t *testing.T) {
 	if !cfg.SkipAlreadyReviewed {
 		t.Error("SkipAlreadyReviewed = false; want true")
 	}
+	if !cfg.SkipApproved {
+		t.Error("SkipApproved = false; want true")
+	}
 	if !cfg.SkipBots {
 		t.Error("SkipBots = false; want true")
 	}

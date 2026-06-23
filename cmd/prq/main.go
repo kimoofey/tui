@@ -33,6 +33,7 @@ Options:
   --repo ORG/REPO        Add a watch repo for this run (repeatable)
   --days N               Look back N days for all sources (default: 30)
   --include-reviewed     Include PRs you've already reviewed
+  --include-approved     Include PRs with APPROVED review decision
   --include-bots         Include bot-authored PRs
   --debug                Write diagnostic logs to /tmp/prq-debug.log
   --init                 Scaffold config at %s
@@ -62,6 +63,7 @@ func main() {
 	var (
 		extraRepos      stringSlice
 		includeReviewed bool
+		includeApproved bool
 		includeBots     bool
 		initFlag        bool
 		versionFlag     bool
@@ -72,6 +74,7 @@ func main() {
 	flag.Var(&extraRepos, "repo", "add a watch repo for this run (repeatable)")
 	flag.IntVar(&cfg.DaysAgo, "days", cfg.DaysAgo, "look back N days for all sources")
 	flag.BoolVar(&includeReviewed, "include-reviewed", false, "include PRs you've already reviewed")
+	flag.BoolVar(&includeApproved, "include-approved", false, "include PRs with APPROVED review decision")
 	flag.BoolVar(&includeBots, "include-bots", false, "include bot-authored PRs")
 	flag.BoolVar(&debugFlag, "debug", false, "write diagnostic logs to /tmp/prq-debug.log")
 	flag.BoolVar(&initFlag, "init", false, "scaffold config and exit")
@@ -91,6 +94,9 @@ func main() {
 	}
 	if includeReviewed {
 		cfg.SkipAlreadyReviewed = false
+	}
+	if includeApproved {
+		cfg.SkipApproved = false
 	}
 	if includeBots {
 		cfg.SkipBots = false

@@ -18,6 +18,7 @@ type Config struct {
 	WatchRepos          []string `yaml:"watch_repos"`
 	DaysAgo             int      `yaml:"days_ago"`
 	SkipAlreadyReviewed bool     `yaml:"skip_already_reviewed"`
+	SkipApproved        bool     `yaml:"skip_approved"`
 	SkipBots            bool     `yaml:"skip_bots"`
 	EstimateTimeBuckets []int    `yaml:"estimate_time_buckets"`
 	OpencodeTerminal    string   `yaml:"opencode_terminal"`
@@ -31,6 +32,7 @@ func defaultConfig() Config {
 		WatchRepos:          []string{},
 		DaysAgo:             30,
 		SkipAlreadyReviewed: true,
+		SkipApproved:        true,
 		SkipBots:            true,
 		EstimateTimeBuckets: defaultEstimateTimeBuckets(),
 		OpencodeTerminal:    "",

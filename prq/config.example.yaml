@@ -17,6 +17,9 @@ days_ago: 30
 # Skip PRs you've already left any review on.
 skip_already_reviewed: true
 
+# Skip PRs where GitHub reviewDecision is APPROVED.
+skip_approved: true
+
 # Skip PRs authored by bots (Dependabot, github-actions, etc.).
 skip_bots: true
 

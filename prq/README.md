@@ -56,6 +56,7 @@ prq [OPTIONS]
   --repo ORG/REPO        Add a watch repo for this run (repeatable)
   --days N               Look back N days (default: 30)
   --include-reviewed     Include PRs you've already reviewed
+  --include-approved     Include PRs with APPROVED review decision
   --include-bots         Include bot-authored PRs (Dependabot, github-actions, etc.)
   --debug                Write diagnostic logs to /tmp/prq-debug.log
   --init                 Scaffold config at ~/.config/prq/config.yaml
@@ -99,6 +100,7 @@ Full reference with defaults — scaffold with `prq --init`:
 watch_repos: [] # repos to watch for volunteer reviews
 days_ago: 30 # how far back to look across all sources
 skip_already_reviewed: true # skip PRs you've already left a review on
+skip_approved: true # skip PRs where GitHub reviewDecision is APPROVED
 skip_bots: true # skip PRs authored by bots (Dependabot, github-actions, etc.)
 estimate_time_buckets: [1, 2, 3, 5, 8, 12, 20, 30, 45, 60] # minute buckets for Time column labels
 opencode_terminal: "" # terminal for `o` key — auto-detected from $TERM_PROGRAM
