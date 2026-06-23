@@ -18,31 +18,34 @@ const (
 )
 
 type PullRequest struct {
-	NodeID         string
-	Number         int
-	Title          string
-	URL            string
-	Author         string
-	Repo           string
-	HeadRefOID     string
-	CreatedAt      time.Time
-	WaitSince      time.Time
-	Approvals      int
-	ReviewDecision string
-	Additions      int
-	Deletions      int
-	ChangedFiles   int
-	Files          []PRFile
-	FilesTruncated bool
-	Bucket         Bucket
-	IsDraft        bool
-	Enriched       bool
+	NodeID                string
+	Number                int
+	Title                 string
+	URL                   string
+	Author                string
+	Repo                  string
+	HeadRefOID            string
+	CreatedAt             time.Time
+	WaitSince             time.Time
+	Approvals             int
+	ReviewDecision        string
+	ViewerReviewState     string
+	ViewerReviewAt        time.Time
+	LatestReviewRequestAt time.Time
+	Additions             int
+	Deletions             int
+	ChangedFiles          int
+	Files                 []PRFile
+	FilesTruncated        bool
+	Bucket                Bucket
+	IsDraft               bool
+	Enriched              bool
 }
 
 type PRFile struct {
-	Path      string `json:"path"`
-	Additions int    `json:"additions"`
-	Deletions int    `json:"deletions"`
+	Path       string `json:"path"`
+	Additions  int    `json:"additions"`
+	Deletions  int    `json:"deletions"`
 	ChangeType string `json:"changeType"`
 }
 

@@ -51,6 +51,78 @@ func TestReviewDecisionLabel(t *testing.T) {
 	}
 }
 
+func TestReviewQueueStatusLabel(t *testing.T) {
+	now := time.Date(2026, 1, 2, 10, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		pr   PullRequest
+		want string
+	}{
+		{
+			name: "viewer approved",
+			pr: PullRequest{
+				ViewerReviewState: "APPROVED",
+			},
+			want: "approved",
+		},
+		{
+			name: "viewer commented",
+			pr: PullRequest{
+				ViewerReviewState: "COMMENTED",
+			},
+			want: "commented",
+		},
+		{
+			name: "re-request after comment resets to review",
+			pr: PullRequest{
+				ViewerReviewState:     "COMMENTED",
+				ViewerReviewAt:        now,
+				LatestReviewRequestAt: now.Add(time.Minute),
+				ReviewDecision:        "REVIEW_REQUIRED",
+			},
+			want: "review",
+		},
+		{
+			name: "changes requested fallback",
+			pr: PullRequest{
+				ReviewDecision: "CHANGES_REQUESTED",
+			},
+			want: "changes",
+		},
+		{
+			name: "viewer requested changes",
+			pr: PullRequest{
+				ViewerReviewState: "CHANGES_REQUESTED",
+			},
+			want: "changes",
+		},
+		{
+			name: "approved decision settles",
+			pr: PullRequest{
+				ReviewDecision: "APPROVED",
+			},
+			want: "settled",
+		},
+		{
+			name: "approved with request but no viewer review stays settled",
+			pr: PullRequest{
+				ReviewDecision:        "APPROVED",
+				LatestReviewRequestAt: now,
+			},
+			want: "settled",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := reviewQueueStatusLabel(tt.pr)
+			if got != tt.want {
+				t.Fatalf("reviewQueueStatusLabel() = %q; want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPRsToRows(t *testing.T) {
 	now := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
 	prs := []PullRequest{
@@ -92,8 +164,8 @@ func TestPRsToRows(t *testing.T) {
 	if rows[0][5] != "..." {
 		t.Errorf("row[0] estimate = %q; want %q", rows[0][5], "...")
 	}
-	if rows[0][6] != "none" {
-		t.Errorf("row[0] decision = %q; want %q", rows[0][6], "none")
+	if rows[0][6] != "review" {
+		t.Errorf("row[0] status = %q; want %q", rows[0][6], "review")
 	}
 }
 

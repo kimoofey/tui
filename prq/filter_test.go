@@ -1,6 +1,9 @@
 package prq
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestShouldInclude(t *testing.T) {
 	tests := []struct {
@@ -8,6 +11,8 @@ func TestShouldInclude(t *testing.T) {
 		node         ghPRNode
 		cfg          Config
 		userReviewed bool
+		requestAt    time.Time
+		reviewAt     time.Time
 		want         bool
 	}{
 		{
@@ -23,11 +28,20 @@ func TestShouldInclude(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "already reviewed still filtered",
-			node: ghPRNode{Author: ghAuthor{TypeName: "User"}, ReviewDecision: "REVIEW_REQUIRED"},
-			cfg:  Config{SkipAlreadyReviewed: true, SkipApproved: false},
+			name:         "already reviewed still filtered",
+			node:         ghPRNode{Author: ghAuthor{TypeName: "User"}, ReviewDecision: "REVIEW_REQUIRED"},
+			cfg:          Config{SkipAlreadyReviewed: true, SkipApproved: false},
 			userReviewed: true,
-			want: false,
+			want:         false,
+		},
+		{
+			name:         "re-requested review included even if already reviewed",
+			node:         ghPRNode{Author: ghAuthor{TypeName: "User"}, ReviewDecision: "REVIEW_REQUIRED"},
+			cfg:          Config{SkipAlreadyReviewed: true, SkipApproved: false},
+			userReviewed: true,
+			reviewAt:     time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC),
+			requestAt:    time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC),
+			want:         true,
 		},
 		{
 			name: "bot still filtered",
@@ -45,7 +59,7 @@ func TestShouldInclude(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := shouldInclude(tt.node, tt.cfg, tt.userReviewed)
+			got := shouldInclude(tt.node, tt.cfg, tt.userReviewed, tt.requestAt, tt.reviewAt)
 			if got != tt.want {
 				t.Fatalf("shouldInclude() = %v; want %v", got, tt.want)
 			}

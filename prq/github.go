@@ -25,8 +25,9 @@ type ghAuthor struct {
 }
 
 type ghReview struct {
-	State  string   `json:"state"`
-	Author ghAuthor `json:"author"`
+	State     string   `json:"state"`
+	CreatedAt string   `json:"createdAt"`
+	Author    ghAuthor `json:"author"`
 }
 
 type ghReviewRequest struct {
@@ -47,9 +48,9 @@ type ghReviewRequestedEvent struct {
 }
 
 type ghPRFile struct {
-	Path      string `json:"path"`
-	Additions int    `json:"additions"`
-	Deletions int    `json:"deletions"`
+	Path       string `json:"path"`
+	Additions  int    `json:"additions"`
+	Deletions  int    `json:"deletions"`
 	ChangeType string `json:"changeType"`
 }
 
@@ -126,7 +127,7 @@ type pagedSearchResponse struct {
 
 // queryReviewPRsLight fetches review-queue PRs with cursor pagination.
 // Used by both fetchAssignedPRs (direct/team assignments) and fetchWatchPRs.
-const queryReviewPRsLight = `
+var queryReviewPRsLight = fmt.Sprintf(`
 query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String!, $cursor: String) {
   search(query: $searchQuery, type: ISSUE, first: $pageSize, after: $cursor) {
     nodes {
@@ -147,6 +148,17 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
             }
           }
         }
+        timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: %d) {
+          nodes {
+            ... on ReviewRequestedEvent {
+              createdAt
+              requestedReviewer {
+                ... on User { login }
+                ... on Team { slug }
+              }
+            }
+          }
+        }
         latestOpinionatedReviews(first: $maxReviewers) {
           nodes {
             state
@@ -157,14 +169,16 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
         additions
         deletions
         changedFiles
-        viewerReview: reviews(first: 1, author: $user) {
-          nodes { state }
+        viewerReview: reviews(last: 1, author: $user) {
+          nodes { state createdAt }
         }
       }
     }
     pageInfo { hasNextPage endCursor }
   }
-}`
+}`,
+	reviewTimelineEventWindow,
+)
 
 var queryReviewPRsEnrich = fmt.Sprintf(`
 query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String!, $cursor: String) {
@@ -217,8 +231,8 @@ query($searchQuery: String!, $pageSize: Int!, $maxReviewers: Int!, $user: String
           }
           pageInfo { hasNextPage }
         }
-        viewerReview: reviews(first: 1, author: $user) {
-          nodes { state }
+        viewerReview: reviews(last: 1, author: $user) {
+          nodes { state createdAt }
         }
       }
     }
@@ -484,11 +498,12 @@ func fetchAssignedPRs(cfg Config, user, dateThreshold string) ([]PullRequest, er
 		if node.Number == 0 {
 			continue // non-PR search hit
 		}
+		bucket := bucketForNode(node, user)
 		approvals, userReviewed := reviewCounts(node)
-		if !shouldInclude(node, cfg, userReviewed) {
+		if !shouldInclude(node, cfg, userReviewed, selectWaitSince(node, bucket, user, time.Time{}), viewerLatestReviewAt(node)) {
 			continue
 		}
-		pr, err := convertPR(node, bucketForNode(node, user), approvals, user)
+		pr, err := convertPR(node, bucket, approvals, user)
 		if err != nil {
 			continue
 		}
@@ -519,7 +534,7 @@ func fetchWatchPRs(cfg Config, user, dateThreshold string) ([]PullRequest, error
 			continue
 		}
 		approvals, userReviewed := reviewCounts(node)
-		if !shouldInclude(node, cfg, userReviewed) {
+		if !shouldInclude(node, cfg, userReviewed, time.Time{}, viewerLatestReviewAt(node)) {
 			continue
 		}
 		pr, err := convertPR(node, BucketWatch, approvals, user)
@@ -544,11 +559,12 @@ func fetchAssignedPRsEnriched(cfg Config, user, dateThreshold string) ([]PullReq
 		if node.Number == 0 {
 			continue
 		}
+		bucket := bucketForNode(node, user)
 		approvals, userReviewed := reviewCounts(node)
-		if !shouldInclude(node, cfg, userReviewed) {
+		if !shouldInclude(node, cfg, userReviewed, selectWaitSince(node, bucket, user, time.Time{}), viewerLatestReviewAt(node)) {
 			continue
 		}
-		pr, err := convertPR(node, bucketForNode(node, user), approvals, user)
+		pr, err := convertPR(node, bucket, approvals, user)
 		if err != nil {
 			continue
 		}
@@ -580,7 +596,7 @@ func fetchWatchPRsEnriched(cfg Config, user, dateThreshold string) ([]PullReques
 			continue
 		}
 		approvals, userReviewed := reviewCounts(node)
-		if !shouldInclude(node, cfg, userReviewed) {
+		if !shouldInclude(node, cfg, userReviewed, time.Time{}, viewerLatestReviewAt(node)) {
 			continue
 		}
 		pr, err := convertPR(node, BucketWatch, approvals, user)
@@ -739,11 +755,11 @@ func runGraphQL(args []string) ([]byte, error) {
 	return out, nil
 }
 
-func shouldInclude(node ghPRNode, cfg Config, userReviewed bool) bool {
+func shouldInclude(node ghPRNode, cfg Config, userReviewed bool, requestAt, viewerReviewAt time.Time) bool {
 	if cfg.SkipBots && node.Author.TypeName == "Bot" {
 		return false
 	}
-	if cfg.SkipAlreadyReviewed && userReviewed {
+	if cfg.SkipAlreadyReviewed && userReviewed && !requestAt.After(viewerReviewAt) {
 		return false
 	}
 	if cfg.SkipApproved && node.ReviewDecision == "APPROVED" {
@@ -760,6 +776,42 @@ func reviewCounts(node ghPRNode) (approvals int, userReviewed bool) {
 	}
 	userReviewed = len(node.ViewerReview.Nodes) > 0
 	return
+}
+
+func viewerLatestReviewState(node ghPRNode) string {
+	if len(node.ViewerReview.Nodes) == 0 {
+		return ""
+	}
+	return node.ViewerReview.Nodes[0].State
+}
+
+func viewerLatestReviewAt(node ghPRNode) time.Time {
+	if len(node.ViewerReview.Nodes) == 0 {
+		return time.Time{}
+	}
+	ts := node.ViewerReview.Nodes[0].CreatedAt
+	if ts == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+func latestReviewRequestAt(node ghPRNode) time.Time {
+	latest := time.Time{}
+	for _, item := range node.TimelineItems.Nodes {
+		t, err := time.Parse(time.RFC3339, item.CreatedAt)
+		if err != nil {
+			continue
+		}
+		if t.After(latest) {
+			latest = t
+		}
+	}
+	return latest
 }
 
 func bucketForNode(node ghPRNode, user string) Bucket {
@@ -782,24 +834,27 @@ func convertPR(node ghPRNode, bucket Bucket, approvals int, user string) (PullRe
 		files = append(files, PRFile(f))
 	}
 	return PullRequest{
-		NodeID:         node.ID,
-		Number:         node.Number,
-		Title:          node.Title,
-		URL:            node.URL,
-		Author:         node.Author.Login,
-		Repo:           node.Repository.NameWithOwner,
-		HeadRefOID:     node.HeadRefOID,
-		CreatedAt:      t,
-		WaitSince:      waitSince,
-		Approvals:      approvals,
-		ReviewDecision: node.ReviewDecision,
-		Additions:      node.Additions,
-		Deletions:      node.Deletions,
-		ChangedFiles:   node.ChangedFiles,
-		Files:          files,
-		FilesTruncated: node.Files.PageInfo.HasNextPage,
-		Bucket:         bucket,
-		Enriched:       len(node.Files.Nodes) > 0 || node.Files.PageInfo.HasNextPage || len(node.TimelineItems.Nodes) > 0,
+		NodeID:                node.ID,
+		Number:                node.Number,
+		Title:                 node.Title,
+		URL:                   node.URL,
+		Author:                node.Author.Login,
+		Repo:                  node.Repository.NameWithOwner,
+		HeadRefOID:            node.HeadRefOID,
+		CreatedAt:             t,
+		WaitSince:             waitSince,
+		Approvals:             approvals,
+		ReviewDecision:        node.ReviewDecision,
+		ViewerReviewState:     viewerLatestReviewState(node),
+		ViewerReviewAt:        viewerLatestReviewAt(node),
+		LatestReviewRequestAt: latestReviewRequestAt(node),
+		Additions:             node.Additions,
+		Deletions:             node.Deletions,
+		ChangedFiles:          node.ChangedFiles,
+		Files:                 files,
+		FilesTruncated:        node.Files.PageInfo.HasNextPage,
+		Bucket:                bucket,
+		Enriched:              len(node.Files.Nodes) > 0 || node.Files.PageInfo.HasNextPage,
 	}, nil
 }
 

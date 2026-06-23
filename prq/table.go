@@ -41,7 +41,7 @@ func makeColumns(termWidth int) []table.Column {
 		{Title: "Author", Width: widthAuthor},
 		{Title: "Pending", Width: widthPending},
 		{Title: "Time", Width: widthEstimate},
-		{Title: "Review", Width: widthReview},
+		{Title: "Status", Width: widthReview},
 	}
 }
 
@@ -69,7 +69,7 @@ func PRsToRows(prs []PullRequest, estimateBuckets []int) []table.Row {
 			"@" + ui.Truncate(pr.Author, widthAuthor-1),
 			waitCell(pr),
 			estimateCell(pr, estimateBuckets),
-			reviewDecisionLabel(pr.ReviewDecision),
+			reviewQueueStatusLabel(pr),
 		}
 	}
 	return rows
@@ -129,6 +129,30 @@ func reviewDecisionLabel(decision string) string {
 		return "pending"
 	default:
 		return "none"
+	}
+}
+
+func reviewQueueStatusLabel(pr PullRequest) string {
+	if !pr.ViewerReviewAt.IsZero() && pr.LatestReviewRequestAt.After(pr.ViewerReviewAt) {
+		return "review"
+	}
+
+	switch pr.ViewerReviewState {
+	case "APPROVED":
+		return "approved"
+	case "COMMENTED":
+		return "commented"
+	case "CHANGES_REQUESTED":
+		return "changes"
+	}
+
+	switch pr.ReviewDecision {
+	case "CHANGES_REQUESTED":
+		return "changes"
+	case "APPROVED":
+		return "settled"
+	default:
+		return "review"
 	}
 }
 

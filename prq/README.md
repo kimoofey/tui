@@ -15,6 +15,14 @@ A second tab — **My PRs** — shows open PRs you authored, with their review s
 In the review tab, **Pending** shows time since the most recent review request event
 (falls back to PR creation time when no review-request event is available).
 
+In the review tab, **Status** means:
+
+- `review` - needs your review now
+- `commented` - your latest review was `COMMENTED`
+- `approved` - your latest review was `APPROVED`
+- `changes` - changes requested and no newer viewer review state applies
+- `settled` - queue-level approved state (`reviewDecision=APPROVED`)
+
 ## Requirements
 
 - [`gh`](https://cli.github.com/) — GitHub CLI, authenticated (`gh auth login`)
@@ -99,7 +107,7 @@ Full reference with defaults — scaffold with `prq --init`:
 ```yaml
 watch_repos: [] # repos to watch for volunteer reviews
 days_ago: 30 # how far back to look across all sources
-skip_already_reviewed: true # skip PRs you've already left a review on
+skip_already_reviewed: true # skip PRs you've already reviewed, unless review was re-requested afterward
 skip_approved: true # skip PRs where GitHub reviewDecision is APPROVED
 skip_bots: true # skip PRs authored by bots (Dependabot, github-actions, etc.)
 estimate_time_buckets: [1, 2, 3, 5, 8, 12, 20, 30, 45, 60] # minute buckets for Time column labels
