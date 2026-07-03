@@ -292,13 +292,13 @@ func FetchAll(cfg Config) FetchResult {
 
 	go func() {
 		start := time.Now()
-		prs, err := fetchAssignedPRs(cfg, user, dateThreshold)
+		prs, err := fetchAssignedReviewPRs(cfg, user, dateThreshold, false)
 		debugDuration("fetch.assigned.total", start)
 		assignedCh <- partial{prs, err}
 	}()
 	go func() {
 		start := time.Now()
-		prs, err := fetchWatchPRs(cfg, user, dateThreshold)
+		prs, err := fetchWatchReviewPRs(cfg, user, dateThreshold, false)
 		debugDuration("fetch.watch.total", start)
 		watchCh <- partial{prs, err}
 	}()
@@ -381,13 +381,13 @@ func EnrichReviewPRs(cfg Config, reviewPRs []PullRequest) enrichResult {
 
 	go func() {
 		start := time.Now()
-		prs, err := fetchAssignedPRsEnriched(cfg, user, dateThreshold)
+		prs, err := fetchAssignedReviewPRs(cfg, user, dateThreshold, true)
 		debugDuration("enrich.assigned.total", start)
 		assignedCh <- partial{prs, err}
 	}()
 	go func() {
 		start := time.Now()
-		prs, err := fetchWatchPRsEnriched(cfg, user, dateThreshold)
+		prs, err := fetchWatchReviewPRs(cfg, user, dateThreshold, true)
 		debugDuration("enrich.watch.total", start)
 		watchCh <- partial{prs, err}
 	}()
@@ -434,9 +434,9 @@ func EnrichReviewPRs(cfg Config, reviewPRs []PullRequest) enrichResult {
 	return enrichResult{Updates: updates}
 }
 
-// fetchReviewNodes runs queryReviewPRs with cursor pagination and returns the
-// raw nodes. Used by both fetchAssignedPRs and fetchWatchPRs.
-func fetchReviewNodes(cfg Config, user, stage, searchQuery, query string) ([]ghPRNode, error) {
+// paginateSearch runs a paginated GraphQL search query and returns the raw
+// nodes. Both review-PR fetches and my-PR fetches share this pagination logic.
+func paginateSearch(cfg Config, stage, query, searchQuery string, extraArgs []string) ([]ghPRNode, error) {
 	var allNodes []ghPRNode
 	cursor := ""
 	pagesFetched := 0
@@ -447,10 +447,9 @@ func fetchReviewNodes(cfg Config, user, stage, searchQuery, query string) ([]ghP
 		args := []string{
 			"-f", "query=" + query,
 			"-f", "searchQuery=" + searchQuery,
-			"-f", "user=" + user,
 			"-F", fmt.Sprintf("pageSize=%d", cfg.PageSize),
-			"-F", fmt.Sprintf("maxReviewers=%d", cfg.MaxReviewers),
 		}
+		args = append(args, extraArgs...)
 		if cursor != "" {
 			args = append(args, "-f", "cursor="+cursor)
 		}
@@ -485,20 +484,28 @@ func fetchReviewNodes(cfg Config, user, stage, searchQuery, query string) ([]ghP
 	return allNodes, nil
 }
 
-func fetchAssignedPRs(cfg Config, user, dateThreshold string) ([]PullRequest, error) {
-	searchQuery := assignedSearchQuery(cfg, user, dateThreshold)
-
-	nodes, err := fetchReviewNodes(cfg, user, "fetch.assigned", searchQuery, queryReviewPRsLight)
-	if err != nil {
-		return nil, err
+// fetchReviewNodes runs a review-PR query with cursor pagination, adding the
+// user and maxReviewers variables required by the review queries.
+func fetchReviewNodes(cfg Config, user, stage, searchQuery, query string) ([]ghPRNode, error) {
+	extraArgs := []string{
+		"-f", "user=" + user,
+		"-F", fmt.Sprintf("maxReviewers=%d", cfg.MaxReviewers),
 	}
+	return paginateSearch(cfg, stage, query, searchQuery, extraArgs)
+}
 
-	var prs []PullRequest
+// bucketFunc determines the Bucket for a given node.
+type bucketFunc func(node ghPRNode, user string) Bucket
+
+// convertReviewNodes filters and converts raw GraphQL nodes into PullRequests.
+// bucketFn determines the bucket for each node; enriched marks the resulting PRs.
+func convertReviewNodes(nodes []ghPRNode, cfg Config, user string, bucketFn bucketFunc, enriched bool) []PullRequest {
+	prs := make([]PullRequest, 0, len(nodes))
 	for _, node := range nodes {
 		if node.Number == 0 {
-			continue // non-PR search hit
+			continue
 		}
-		bucket := bucketForNode(node, user)
+		bucket := bucketFn(node, user)
 		approvals, userReviewed := reviewCounts(node)
 		if !shouldInclude(node, cfg, userReviewed, selectWaitSince(node, bucket, user, time.Time{}), viewerLatestReviewAt(node)) {
 			continue
@@ -507,76 +514,40 @@ func fetchAssignedPRs(cfg Config, user, dateThreshold string) ([]PullRequest, er
 		if err != nil {
 			continue
 		}
-		prs = append(prs, pr)
-	}
-	return prs, nil
-}
-
-func fetchWatchPRs(cfg Config, user, dateThreshold string) ([]PullRequest, error) {
-	if len(cfg.WatchRepos) == 0 {
-		return nil, nil
-	}
-
-	var repoParts []string
-	for _, r := range cfg.WatchRepos {
-		repoParts = append(repoParts, "repo:"+r)
-	}
-	searchQuery := watchSearchQuery(cfg, user, dateThreshold, repoParts)
-
-	nodes, err := fetchReviewNodes(cfg, user, "fetch.watch", searchQuery, queryReviewPRsLight)
-	if err != nil {
-		return nil, err
-	}
-
-	var prs []PullRequest
-	for _, node := range nodes {
-		if node.Number == 0 {
-			continue
-		}
-		approvals, userReviewed := reviewCounts(node)
-		if !shouldInclude(node, cfg, userReviewed, time.Time{}, viewerLatestReviewAt(node)) {
-			continue
-		}
-		pr, err := convertPR(node, BucketWatch, approvals, user)
-		if err != nil {
-			continue
+		if enriched {
+			pr.Enriched = true
 		}
 		prs = append(prs, pr)
 	}
-	return prs, nil
+	return prs
 }
 
-func fetchAssignedPRsEnriched(cfg Config, user, dateThreshold string) ([]PullRequest, error) {
+func fetchAssignedReviewPRs(cfg Config, user, dateThreshold string, enriched bool) ([]PullRequest, error) {
+	query := queryReviewPRsLight
+	stage := "fetch.assigned"
+	if enriched {
+		query = queryReviewPRsEnrich
+		stage = "enrich.assigned"
+	}
 	searchQuery := assignedSearchQuery(cfg, user, dateThreshold)
 
-	nodes, err := fetchReviewNodes(cfg, user, "enrich.assigned", searchQuery, queryReviewPRsEnrich)
+	nodes, err := fetchReviewNodes(cfg, user, stage, searchQuery, query)
 	if err != nil {
 		return nil, err
 	}
-
-	prs := make([]PullRequest, 0, len(nodes))
-	for _, node := range nodes {
-		if node.Number == 0 {
-			continue
-		}
-		bucket := bucketForNode(node, user)
-		approvals, userReviewed := reviewCounts(node)
-		if !shouldInclude(node, cfg, userReviewed, selectWaitSince(node, bucket, user, time.Time{}), viewerLatestReviewAt(node)) {
-			continue
-		}
-		pr, err := convertPR(node, bucket, approvals, user)
-		if err != nil {
-			continue
-		}
-		pr.Enriched = true
-		prs = append(prs, pr)
-	}
-	return prs, nil
+	return convertReviewNodes(nodes, cfg, user, bucketForNode, enriched), nil
 }
 
-func fetchWatchPRsEnriched(cfg Config, user, dateThreshold string) ([]PullRequest, error) {
+func fetchWatchReviewPRs(cfg Config, user, dateThreshold string, enriched bool) ([]PullRequest, error) {
 	if len(cfg.WatchRepos) == 0 {
 		return nil, nil
+	}
+
+	query := queryReviewPRsLight
+	stage := "fetch.watch"
+	if enriched {
+		query = queryReviewPRsEnrich
+		stage = "enrich.watch"
 	}
 
 	var repoParts []string
@@ -585,69 +556,20 @@ func fetchWatchPRsEnriched(cfg Config, user, dateThreshold string) ([]PullReques
 	}
 	searchQuery := watchSearchQuery(cfg, user, dateThreshold, repoParts)
 
-	nodes, err := fetchReviewNodes(cfg, user, "enrich.watch", searchQuery, queryReviewPRsEnrich)
+	nodes, err := fetchReviewNodes(cfg, user, stage, searchQuery, query)
 	if err != nil {
 		return nil, err
 	}
-
-	prs := make([]PullRequest, 0, len(nodes))
-	for _, node := range nodes {
-		if node.Number == 0 {
-			continue
-		}
-		approvals, userReviewed := reviewCounts(node)
-		if !shouldInclude(node, cfg, userReviewed, time.Time{}, viewerLatestReviewAt(node)) {
-			continue
-		}
-		pr, err := convertPR(node, BucketWatch, approvals, user)
-		if err != nil {
-			continue
-		}
-		pr.Enriched = true
-		prs = append(prs, pr)
-	}
-	return prs, nil
+	watchBucket := func(_ ghPRNode, _ string) Bucket { return BucketWatch }
+	return convertReviewNodes(nodes, cfg, user, watchBucket, enriched), nil
 }
 
 func fetchMyPRs(cfg Config) ([]PullRequest, error) {
 	searchQuery := "is:pr is:open author:@me sort:created-asc"
 
-	var allNodes []ghPRNode
-	cursor := ""
-
-	for page := 0; page < cfg.MaxPages; page++ {
-		pageStart := time.Now()
-		args := []string{
-			"-f", "query=" + queryMyPRs,
-			"-f", "searchQuery=" + searchQuery,
-			"-F", fmt.Sprintf("pageSize=%d", cfg.PageSize),
-		}
-		if cursor != "" {
-			args = append(args, "-f", "cursor="+cursor)
-		}
-
-		out, err := runGraphQL(args)
-		if err != nil {
-			debugDuration(fmt.Sprintf("fetch.my_prs.page_%d", page+1), pageStart)
-			return nil, err
-		}
-
-		var resp pagedSearchResponse
-		if err := json.Unmarshal(out, &resp); err != nil {
-			return nil, fmt.Errorf("parse response: %w", err)
-		}
-		if err := resp.graphQLErr(); err != nil {
-			debugDuration(fmt.Sprintf("fetch.my_prs.page_%d", page+1), pageStart)
-			return nil, err
-		}
-		debugDuration(fmt.Sprintf("fetch.my_prs.page_%d", page+1), pageStart)
-
-		allNodes = append(allNodes, resp.Data.Search.Nodes...)
-
-		if !resp.Data.Search.PageInfo.HasNextPage {
-			break
-		}
-		cursor = resp.Data.Search.PageInfo.EndCursor
+	allNodes, err := paginateSearch(cfg, "fetch.my_prs", queryMyPRs, searchQuery, nil)
+	if err != nil {
+		return nil, err
 	}
 
 	var prs []PullRequest
