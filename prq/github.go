@@ -269,12 +269,12 @@ query($searchQuery: String!, $pageSize: Int!, $cursor: String) {
 // FetchAll fetches S1 (direct/team review requests), Watch (combined watch repos),
 // and S3 (user's own PRs) in 3 parallel goroutines, then merges with dedup.
 // S1 results take priority over Watch in case of overlap.
-func FetchAll(cfg Config) FetchResult {
+func FetchAll(ctx context.Context, cfg Config) FetchResult {
 	totalStart := time.Now()
 	defer debugDuration("fetch.total", totalStart)
 
 	userStart := time.Now()
-	user, err := getUser()
+	user, err := getUser(ctx)
 	debugDuration("fetch.get_user", userStart)
 	if err != nil {
 		return FetchResult{Err: fmt.Errorf("getting GitHub user: %w", err)}
@@ -292,19 +292,19 @@ func FetchAll(cfg Config) FetchResult {
 
 	go func() {
 		start := time.Now()
-		prs, err := fetchAssignedReviewPRs(cfg, user, dateThreshold, false)
+		prs, err := fetchAssignedReviewPRs(ctx, cfg, user, dateThreshold, false)
 		debugDuration("fetch.assigned.total", start)
 		assignedCh <- partial{prs, err}
 	}()
 	go func() {
 		start := time.Now()
-		prs, err := fetchWatchReviewPRs(cfg, user, dateThreshold, false)
+		prs, err := fetchWatchReviewPRs(ctx, cfg, user, dateThreshold, false)
 		debugDuration("fetch.watch.total", start)
 		watchCh <- partial{prs, err}
 	}()
 	go func() {
 		start := time.Now()
-		prs, err := fetchMyPRs(cfg)
+		prs, err := fetchMyPRs(ctx, cfg)
 		debugDuration("fetch.my_prs.total", start)
 		myCh <- partial{prs, err}
 	}()
@@ -359,12 +359,12 @@ func FetchAll(cfg Config) FetchResult {
 	return FetchResult{ReviewPRs: reviewPRs, MyPRs: my.prs, Err: fetchErr}
 }
 
-func EnrichReviewPRs(cfg Config, reviewPRs []PullRequest) enrichResult {
+func EnrichReviewPRs(ctx context.Context, cfg Config, reviewPRs []PullRequest) enrichResult {
 	totalStart := time.Now()
 	defer debugDuration("enrich.total", totalStart)
 
 	userStart := time.Now()
-	user, err := getUser()
+	user, err := getUser(ctx)
 	debugDuration("enrich.get_user", userStart)
 	if err != nil {
 		return enrichResult{Err: fmt.Errorf("getting GitHub user: %w", err)}
@@ -381,13 +381,13 @@ func EnrichReviewPRs(cfg Config, reviewPRs []PullRequest) enrichResult {
 
 	go func() {
 		start := time.Now()
-		prs, err := fetchAssignedReviewPRs(cfg, user, dateThreshold, true)
+		prs, err := fetchAssignedReviewPRs(ctx, cfg, user, dateThreshold, true)
 		debugDuration("enrich.assigned.total", start)
 		assignedCh <- partial{prs, err}
 	}()
 	go func() {
 		start := time.Now()
-		prs, err := fetchWatchReviewPRs(cfg, user, dateThreshold, true)
+		prs, err := fetchWatchReviewPRs(ctx, cfg, user, dateThreshold, true)
 		debugDuration("enrich.watch.total", start)
 		watchCh <- partial{prs, err}
 	}()
@@ -436,7 +436,7 @@ func EnrichReviewPRs(cfg Config, reviewPRs []PullRequest) enrichResult {
 
 // paginateSearch runs a paginated GraphQL search query and returns the raw
 // nodes. Both review-PR fetches and my-PR fetches share this pagination logic.
-func paginateSearch(cfg Config, stage, query, searchQuery string, extraArgs []string) ([]ghPRNode, error) {
+func paginateSearch(ctx context.Context, cfg Config, stage, query, searchQuery string, extraArgs []string) ([]ghPRNode, error) {
 	var allNodes []ghPRNode
 	cursor := ""
 	pagesFetched := 0
@@ -454,7 +454,7 @@ func paginateSearch(cfg Config, stage, query, searchQuery string, extraArgs []st
 			args = append(args, "-f", "cursor="+cursor)
 		}
 
-		out, err := runGraphQL(args)
+		out, err := runGraphQL(ctx, args)
 		if err != nil {
 			debugDuration(fmt.Sprintf("%s.page_%d", stage, page+1), pageStart)
 			return nil, err
@@ -486,12 +486,12 @@ func paginateSearch(cfg Config, stage, query, searchQuery string, extraArgs []st
 
 // fetchReviewNodes runs a review-PR query with cursor pagination, adding the
 // user and maxReviewers variables required by the review queries.
-func fetchReviewNodes(cfg Config, user, stage, searchQuery, query string) ([]ghPRNode, error) {
+func fetchReviewNodes(ctx context.Context, cfg Config, user, stage, searchQuery, query string) ([]ghPRNode, error) {
 	extraArgs := []string{
 		"-f", "user=" + user,
 		"-F", fmt.Sprintf("maxReviewers=%d", cfg.MaxReviewers),
 	}
-	return paginateSearch(cfg, stage, query, searchQuery, extraArgs)
+	return paginateSearch(ctx, cfg, stage, query, searchQuery, extraArgs)
 }
 
 // bucketFunc determines the Bucket for a given node.
@@ -522,7 +522,7 @@ func convertReviewNodes(nodes []ghPRNode, cfg Config, user string, bucketFn buck
 	return prs
 }
 
-func fetchAssignedReviewPRs(cfg Config, user, dateThreshold string, enriched bool) ([]PullRequest, error) {
+func fetchAssignedReviewPRs(ctx context.Context, cfg Config, user, dateThreshold string, enriched bool) ([]PullRequest, error) {
 	query := queryReviewPRsLight
 	stage := "fetch.assigned"
 	if enriched {
@@ -531,14 +531,14 @@ func fetchAssignedReviewPRs(cfg Config, user, dateThreshold string, enriched boo
 	}
 	searchQuery := assignedSearchQuery(cfg, user, dateThreshold)
 
-	nodes, err := fetchReviewNodes(cfg, user, stage, searchQuery, query)
+	nodes, err := fetchReviewNodes(ctx, cfg, user, stage, searchQuery, query)
 	if err != nil {
 		return nil, err
 	}
 	return convertReviewNodes(nodes, cfg, user, bucketForNode, enriched), nil
 }
 
-func fetchWatchReviewPRs(cfg Config, user, dateThreshold string, enriched bool) ([]PullRequest, error) {
+func fetchWatchReviewPRs(ctx context.Context, cfg Config, user, dateThreshold string, enriched bool) ([]PullRequest, error) {
 	if len(cfg.WatchRepos) == 0 {
 		return nil, nil
 	}
@@ -556,7 +556,7 @@ func fetchWatchReviewPRs(cfg Config, user, dateThreshold string, enriched bool) 
 	}
 	searchQuery := watchSearchQuery(cfg, user, dateThreshold, repoParts)
 
-	nodes, err := fetchReviewNodes(cfg, user, stage, searchQuery, query)
+	nodes, err := fetchReviewNodes(ctx, cfg, user, stage, searchQuery, query)
 	if err != nil {
 		return nil, err
 	}
@@ -564,10 +564,10 @@ func fetchWatchReviewPRs(cfg Config, user, dateThreshold string, enriched bool) 
 	return convertReviewNodes(nodes, cfg, user, watchBucket, enriched), nil
 }
 
-func fetchMyPRs(cfg Config) ([]PullRequest, error) {
+func fetchMyPRs(ctx context.Context, cfg Config) ([]PullRequest, error) {
 	searchQuery := "is:pr is:open author:@me sort:created-asc"
 
-	allNodes, err := paginateSearch(cfg, "fetch.my_prs", queryMyPRs, searchQuery, nil)
+	allNodes, err := paginateSearch(ctx, cfg, "fetch.my_prs", queryMyPRs, searchQuery, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -637,13 +637,13 @@ var (
 
 const cmdTimeout = 30 * time.Second
 
-func getUser() (string, error) {
+func getUser(ctx context.Context) (string, error) {
 	cachedUserMu.Lock()
 	defer cachedUserMu.Unlock()
 	if cachedUser != "" {
 		return cachedUser, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	ctx, cancel := context.WithTimeout(ctx, cmdTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "gh", "api", "user", "-q", ".login").Output()
 	if err != nil {
@@ -658,12 +658,12 @@ func getUser() (string, error) {
 }
 
 func PrefetchUser() error {
-	_, err := getUser()
+	_, err := getUser(context.Background())
 	return err
 }
 
-func runGraphQL(args []string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+func runGraphQL(ctx context.Context, args []string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, cmdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "gh", append([]string{"api", "graphql"}, args...)...)
 	out, err := cmd.Output()

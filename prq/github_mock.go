@@ -2,11 +2,14 @@
 
 package prq
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 var mockNow = time.Now()
 
-func FetchAll(_ Config) FetchResult {
+func FetchAll(_ context.Context, _ Config) FetchResult {
 	reviewPRs := []PullRequest{
 		{
 			NodeID:     "R_kgDOAA142",
@@ -125,7 +128,7 @@ func FetchAll(_ Config) FetchResult {
 	return FetchResult{ReviewPRs: reviewPRs, MyPRs: myPRs}
 }
 
-func EnrichReviewPRs(_ Config, reviewPRs []PullRequest) enrichResult {
+func EnrichReviewPRs(_ context.Context, _ Config, reviewPRs []PullRequest) enrichResult {
 	updates := make(map[string]PullRequest, len(reviewPRs))
 	for _, pr := range reviewPRs {
 		pr.Enriched = true

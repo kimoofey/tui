@@ -1,6 +1,7 @@
 package prq
 
 import (
+	"context"
 	"log"
 	"time"
 
@@ -26,18 +27,18 @@ const (
 )
 
 // fetchCmd wraps FetchAll in a tea.Cmd so it runs off the main goroutine.
-func fetchCmd(cfg Config) tea.Cmd {
+func fetchCmd(ctx context.Context, cfg Config) tea.Cmd {
 	return func() tea.Msg {
-		result := FetchAll(cfg)
+		result := FetchAll(ctx, cfg)
 		return fetchDoneMsg(result)
 	}
 }
 
-func enrichCmd(cfg Config, reviewPRs []PullRequest) tea.Cmd {
+func enrichCmd(ctx context.Context, cfg Config, reviewPRs []PullRequest) tea.Cmd {
 	reviewCopy := make([]PullRequest, len(reviewPRs))
 	copy(reviewCopy, reviewPRs)
 	return func() tea.Msg {
-		result := EnrichReviewPRs(cfg, reviewCopy)
+		result := EnrichReviewPRs(ctx, cfg, reviewCopy)
 		return enrichDoneMsg(result)
 	}
 }
@@ -66,6 +67,9 @@ type Model struct {
 	height int
 
 	enrichCache enrichmentCache
+
+	fetchCtx    context.Context
+	fetchCancel context.CancelFunc
 }
 
 // NewModel constructs the initial Model with an empty table and running spinner.
@@ -92,6 +96,8 @@ func NewModel(cfg Config) Model {
 		keys.OpenCode.SetEnabled(false)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return Model{
 		table:       t,
 		spinner:     s,
@@ -100,13 +106,15 @@ func NewModel(cfg Config) Model {
 		cfg:         cfg,
 		loading:     true,
 		enrichCache: newEnrichmentCache(),
+		fetchCtx:    ctx,
+		fetchCancel: cancel,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
-		fetchCmd(m.cfg),
+		fetchCmd(m.fetchCtx, m.cfg),
 		tea.RequestBackgroundColor,
 	)
 }
@@ -164,7 +172,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(misses) > 0 {
 			m.enriching = true
 			cmds = append(cmds, m.spinner.Tick)
-			cmds = append(cmds, enrichCmd(m.cfg, misses))
+			cmds = append(cmds, enrichCmd(m.fetchCtx, m.cfg, misses))
 		}
 
 	case enrichDoneMsg:
@@ -194,14 +202,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, m.keys.Quit):
+			m.fetchCancel()
 			return m, tea.Quit
 
 		case key.Matches(msg, m.keys.Refresh) && !m.loading && !m.enriching:
+			m.fetchCancel()
+			m.fetchCtx, m.fetchCancel = context.WithCancel(context.Background())
 			m.loading = true
 			m.enriching = false
 			m.enriched = 0
 			m.statusMsg = ""
-			return m, tea.Batch(m.spinner.Tick, fetchCmd(m.cfg))
+			return m, tea.Batch(m.spinner.Tick, fetchCmd(m.fetchCtx, m.cfg))
 
 		case key.Matches(msg, m.keys.NextTab):
 			m.currentTab = (m.currentTab + 1) % 2
