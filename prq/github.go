@@ -330,7 +330,7 @@ func FetchAll(cfg Config) FetchResult {
 	}
 	reviewPRs = groupReviewPRs(reviewPRs)
 
-	if DebugEnabled {
+	if DebugEnabled.Load() {
 		log.Printf("[fetch] assigned=%d watch=%d myPRs=%d reviewPRs(merged)=%d",
 			len(assigned.prs), len(watch.prs), len(my.prs), len(reviewPRs))
 		for _, pr := range reviewPRs {
@@ -427,7 +427,7 @@ func EnrichReviewPRs(cfg Config, reviewPRs []PullRequest) enrichResult {
 	if len(errs) > 0 {
 		return enrichResult{Updates: updates, Err: errors.New(strings.Join(errs, "; "))}
 	}
-	if DebugEnabled {
+	if DebugEnabled.Load() {
 		log.Printf("[enrich] updates=%d requested=%d", len(updates), len(reviewPRs))
 	}
 
@@ -478,7 +478,7 @@ func fetchReviewNodes(cfg Config, user, stage, searchQuery, query string) ([]ghP
 		}
 		cursor = resp.Data.Search.PageInfo.EndCursor
 	}
-	if DebugEnabled {
+	if DebugEnabled.Load() {
 		log.Printf("[timing] %s.pages=%d nodes=%d", stage, pagesFetched, len(allNodes))
 	}
 
@@ -662,7 +662,7 @@ func fetchMyPRs(cfg Config) ([]PullRequest, error) {
 		prs = append(prs, pr)
 	}
 
-	if DebugEnabled {
+	if DebugEnabled.Load() {
 		for _, pr := range prs {
 			log.Printf("[my-pr] #%d %s %q draft=%v review=%s",
 				pr.Number, pr.RepoShort(), pr.Title, pr.IsDraft, pr.ReviewDecision)
@@ -673,7 +673,7 @@ func fetchMyPRs(cfg Config) ([]PullRequest, error) {
 }
 
 func debugDuration(stage string, start time.Time) {
-	if !DebugEnabled {
+	if !DebugEnabled.Load() {
 		return
 	}
 	log.Printf("[timing] %s=%s", stage, time.Since(start).Round(time.Millisecond))

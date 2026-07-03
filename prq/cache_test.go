@@ -1,6 +1,7 @@
 package prq
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -51,5 +52,47 @@ func TestApplyCachedEnrichment_InvalidatesWhenHeadChanges(t *testing.T) {
 	}
 	if updated[0].Enriched {
 		t.Fatalf("updated[0].Enriched=true; want false")
+	}
+}
+
+func TestEnrichmentCache_LRUEviction(t *testing.T) {
+	cache := newEnrichmentCache()
+
+	overflow := 10
+	total := maxSessionEnrichmentEntries + overflow
+	for i := range total {
+		cache.set(PullRequest{
+			URL:        fmt.Sprintf("https://github.com/org/repo/pull/%d", i),
+			HeadRefOID: fmt.Sprintf("sha-%d", i),
+			Enriched:   true,
+			Files:      []PRFile{{Path: "a.go", Additions: 1}},
+		})
+	}
+
+	if len(cache.entries) != maxSessionEnrichmentEntries {
+		t.Fatalf("cache size = %d; want %d", len(cache.entries), maxSessionEnrichmentEntries)
+	}
+	if len(cache.order) != maxSessionEnrichmentEntries {
+		t.Fatalf("order size = %d; want %d", len(cache.order), maxSessionEnrichmentEntries)
+	}
+
+	for i := range overflow {
+		pr := PullRequest{
+			URL:        fmt.Sprintf("https://github.com/org/repo/pull/%d", i),
+			HeadRefOID: fmt.Sprintf("sha-%d", i),
+		}
+		if _, ok := cache.get(pr); ok {
+			t.Errorf("entry %d should have been evicted but was found", i)
+		}
+	}
+
+	for i := overflow; i < total; i++ {
+		pr := PullRequest{
+			URL:        fmt.Sprintf("https://github.com/org/repo/pull/%d", i),
+			HeadRefOID: fmt.Sprintf("sha-%d", i),
+		}
+		if _, ok := cache.get(pr); !ok {
+			t.Errorf("entry %d should be present but was not found", i)
+		}
 	}
 }

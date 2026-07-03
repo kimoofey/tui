@@ -144,3 +144,37 @@ func TestMergeYAML_WatchRepos(t *testing.T) {
 		t.Errorf("WatchRepos[0] = %q; want %q", cfg.WatchRepos[0], "owner/repo-a")
 	}
 }
+
+func TestValidate_DefaultsPass(t *testing.T) {
+	cfg := defaultConfig()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("default config should be valid: %v", err)
+	}
+}
+
+func TestValidate_InvalidValues(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"days_ago zero", func(c *Config) { c.DaysAgo = 0 }},
+		{"days_ago negative", func(c *Config) { c.DaysAgo = -1 }},
+		{"days_ago too large", func(c *Config) { c.DaysAgo = 366 }},
+		{"page_size zero", func(c *Config) { c.PageSize = 0 }},
+		{"page_size too large", func(c *Config) { c.PageSize = 101 }},
+		{"max_pages zero", func(c *Config) { c.MaxPages = 0 }},
+		{"max_pages too large", func(c *Config) { c.MaxPages = 11 }},
+		{"max_reviewers zero", func(c *Config) { c.MaxReviewers = 0 }},
+		{"max_reviewers too large", func(c *Config) { c.MaxReviewers = 101 }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := defaultConfig()
+			tt.mutate(&cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Error("expected validation error, got nil")
+			}
+		})
+	}
+}

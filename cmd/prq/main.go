@@ -103,9 +103,14 @@ func main() {
 	}
 	cfg.WatchRepos = append(cfg.WatchRepos, extraRepos...)
 
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	log.SetOutput(io.Discard)
 	if debugFlag {
-		prq.DebugEnabled = true
+		prq.DebugEnabled.Store(true)
 		logPath := filepath.Join(os.TempDir(), "prq-debug.log")
 		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {
@@ -122,7 +127,7 @@ func main() {
 
 	checkDep("gh")
 	go func() {
-		if err := prq.PrefetchUser(); err != nil && prq.DebugEnabled {
+		if err := prq.PrefetchUser(); err != nil && prq.DebugEnabled.Load() {
 			log.Printf("[prefetch] get_user failed: %v", err)
 		}
 	}()

@@ -23,7 +23,6 @@ type enrichDoneMsg enrichResult
 const (
 	initialTermWidth  = 80
 	initialTermHeight = 20
-	mouseScrollLines  = 3
 )
 
 // fetchCmd wraps FetchAll in a tea.Cmd so it runs off the main goroutine.
@@ -130,9 +129,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.loading {
 			switch msg.Button {
 			case tea.MouseWheelUp:
-				m.table.MoveUp(mouseScrollLines)
+				m.table.MoveUp(ui.MouseScrollLines)
 			case tea.MouseWheelDown:
-				m.table.MoveDown(mouseScrollLines)
+				m.table.MoveDown(ui.MouseScrollLines)
 			}
 		}
 
@@ -150,7 +149,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reviewPRs, cachedApplied, misses = applyCachedEnrichment(m.reviewPRs, m.enrichCache)
 		m.enriched = cachedApplied
 		updateCacheFromPRs(&m.enrichCache, m.reviewPRs)
-		if DebugEnabled {
+		if DebugEnabled.Load() {
 			log.Printf("[cache] hits=%d misses=%d total=%d", cachedApplied, len(misses), len(m.reviewPRs))
 		}
 		if msg.Err != nil {
@@ -178,8 +177,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		updateCacheFromPRs(&m.enrichCache, m.reviewPRs)
 		if msg.Err != nil {
 			m.statusMsg = styleError.Render("✗ enrich: " + msg.Err.Error())
-		} else if m.statusMsg == "" {
-			m.statusMsg = ""
 		}
 		m = m.resized()
 		m = m.restoreSelection(prevCursor, prevURL)

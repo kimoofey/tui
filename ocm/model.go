@@ -60,10 +60,6 @@ var defaultKeys = keyMap{
 	Quit:   key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }
 
-func helpStyles() help.Styles {
-	return ui.HelpStyles()
-}
-
 // Column widths (characters).
 const (
 	colWidthMarker = 1
@@ -88,7 +84,6 @@ const (
 	layoutOverheadBase = 3
 
 	minReclaimableBytes int64 = 1 << 20
-	mouseScrollLines          = 3
 )
 
 var (
@@ -253,7 +248,7 @@ func New(opts Options, termWidth, termHeight int) Model {
 	t.SetStyles(s)
 
 	h := help.New()
-	h.Styles = helpStyles()
+	h.Styles = ui.HelpStyles()
 	h.SetWidth(termWidth - 2)
 
 	return Model{
@@ -337,9 +332,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.Button {
 		case tea.MouseWheelUp:
-			m.table.MoveUp(mouseScrollLines)
+			m.table.MoveUp(ui.MouseScrollLines)
 		case tea.MouseWheelDown:
-			m.table.MoveDown(mouseScrollLines)
+			m.table.MoveDown(ui.MouseScrollLines)
 		}
 		return m, nil // already handled — don't forward to table.Update below
 
@@ -619,14 +614,14 @@ func (m Model) View() tea.View {
 	if m.help.ShowAll {
 		var statusLine string
 		if statusText != "" {
-			statusLine = statusBarStyle().Render(
+			statusLine = ui.StatusBarStyle().Render(
 				lipgloss.PlaceHorizontal(innerWidth, lipgloss.Right, statusText))
 		} else {
-			statusLine = statusBarStyle().Render("")
+			statusLine = ui.StatusBarStyle().Render("")
 		}
 		footer = lipgloss.JoinVertical(lipgloss.Left,
 			statusLine,
-			statusBarStyle().Render(helpRendered),
+			ui.StatusBarStyle().Render(helpRendered),
 		)
 	} else {
 		var footerContent string
@@ -636,7 +631,7 @@ func (m Model) View() tea.View {
 		} else {
 			footerContent = helpRendered
 		}
-		footer = statusBarStyle().Render(footerContent)
+		footer = ui.StatusBarStyle().Render(footerContent)
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
@@ -655,14 +650,6 @@ func (m Model) View() tea.View {
 func (m *Model) rebuildRows() {
 	_, rows := buildTable(m.sessions, m.selected, m.width-borderWidth, m.homeDir)
 	m.table.SetRows(rows)
-}
-
-func titleBarStyle() lipgloss.Style {
-	return ui.TitleBarStyle()
-}
-
-func statusBarStyle() lipgloss.Style {
-	return ui.StatusBarStyle()
 }
 
 // renderTitleBar renders the top bar: "ocm" on the left, session count + db size on the right.
@@ -702,5 +689,5 @@ func (m Model) renderTitleBar() string {
 
 	innerWidth := m.width - 2
 	rightAligned := lipgloss.PlaceHorizontal(innerWidth-lipgloss.Width(left), lipgloss.Right, styledRight)
-	return titleBarStyle().Render(styledLeft + rightAligned)
+	return ui.TitleBarStyle().Render(styledLeft + rightAligned)
 }

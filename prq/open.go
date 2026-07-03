@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	ui "github.com/kimoofey/tui/internal/ui"
+	"github.com/kimoofey/tui/internal/ui"
 )
 
 // openLaunchErrMsg is sent when OpenInBrowser or OpenInTerminal fails to

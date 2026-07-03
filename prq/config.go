@@ -2,6 +2,7 @@ package prq
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -44,6 +45,26 @@ func defaultConfig() Config {
 
 func defaultEstimateTimeBuckets() []int {
 	return []int{1, 2, 3, 5, 8, 12, 20, 30, 45, 60}
+}
+
+func (c Config) Validate() error {
+	var errs []string
+	if c.DaysAgo <= 0 || c.DaysAgo > 365 {
+		errs = append(errs, fmt.Sprintf("days_ago must be 1–365, got %d", c.DaysAgo))
+	}
+	if c.PageSize <= 0 || c.PageSize > 100 {
+		errs = append(errs, fmt.Sprintf("page_size must be 1–100, got %d", c.PageSize))
+	}
+	if c.MaxPages <= 0 || c.MaxPages > 10 {
+		errs = append(errs, fmt.Sprintf("max_pages must be 1–10, got %d", c.MaxPages))
+	}
+	if c.MaxReviewers <= 0 || c.MaxReviewers > 100 {
+		errs = append(errs, fmt.Sprintf("max_reviewers must be 1–100, got %d", c.MaxReviewers))
+	}
+	if len(errs) > 0 {
+		return errors.New("invalid config: " + errs[0])
+	}
+	return nil
 }
 
 // GlobalConfigPath returns ~/.config/prq/config.yaml, respecting

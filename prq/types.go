@@ -3,10 +3,11 @@ package prq
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
-var DebugEnabled bool
+var DebugEnabled atomic.Bool
 
 type Bucket string
 
