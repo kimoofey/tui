@@ -1,18 +1,15 @@
-# prq demo — uses mock binary, no real GitHub data
+# prq demo — uses mock build, no real GitHub data
 Output screenshots/assets/prq.gif
 
 Set Shell "bash"
 Set FontSize 20
 Set Width 2400
 Set Height 1360
-Set Theme "nord"
 Set PlaybackSpeed 0.75
 
-Hide
-Type "bin/prq-mock"
+Type "prq"
 Enter
 Sleep 1500ms
-Show
 
 # Take the static screenshot on first frame (Review Queue tab)
 Screenshot screenshots/assets/prq.png

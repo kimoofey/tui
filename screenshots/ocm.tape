@@ -1,18 +1,15 @@
-# ocm demo — uses mock binary, no real SQLite data
+# ocm demo — uses mock build, no real SQLite data
 Output screenshots/assets/ocm.gif
 
 Set Shell "bash"
 Set FontSize 20
 Set Width 2400
 Set Height 1360
-Set Theme "nord"
 Set PlaybackSpeed 0.75
 
-Hide
-Type "bin/ocm-mock --cost-period month"
+Type "ocm --cost-period month"
 Enter
 Sleep 800ms
-Show
 
 # Take the static screenshot on first frame
 Screenshot screenshots/assets/ocm.png
