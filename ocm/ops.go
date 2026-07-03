@@ -19,7 +19,7 @@ import (
 
 const cmdTimeout = 30 * time.Second
 
-func bulkDeleteSessions(ids []string, dbPath string, rootOnly bool) tea.Cmd {
+func bulkDeleteSessions(ids []string, store *db.Store, rootOnly bool) tea.Cmd {
 	return func() tea.Msg {
 		var deleteErrs []string
 		for _, id := range ids {
@@ -29,11 +29,11 @@ func bulkDeleteSessions(ids []string, dbPath string, rootOnly bool) tea.Cmd {
 			}
 			cancel()
 		}
-		sessions, err := db.LoadSessions(dbPath, rootOnly)
+		sessions, err := store.LoadSessions(rootOnly)
 		if err != nil {
 			return bulkDeletedMsg{count: len(ids), err: err}
 		}
-		total, _ := db.SessionCount(dbPath)
+		total, _ := store.SessionCount()
 		if len(deleteErrs) > 0 {
 			return bulkDeletedMsg{
 				count:    len(ids) - len(deleteErrs),
@@ -46,7 +46,7 @@ func bulkDeleteSessions(ids []string, dbPath string, rootOnly bool) tea.Cmd {
 	}
 }
 
-func deleteSession(sessionID, dbPath string) tea.Cmd {
+func deleteSession(sessionID string, store *db.Store) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 		defer cancel()
@@ -54,7 +54,7 @@ func deleteSession(sessionID, dbPath string) tea.Cmd {
 		if err := cmd.Run(); err != nil {
 			return deletedMsg{sessionID: sessionID, err: err}
 		}
-		total, _ := db.SessionCount(dbPath)
+		total, _ := store.SessionCount()
 		return deletedMsg{sessionID: sessionID, newTotal: total}
 	}
 }
@@ -93,38 +93,38 @@ func openSession(sessionID string) tea.Cmd {
 	}
 }
 
-func pruneOrphans(dbPath string) tea.Cmd {
+func pruneOrphans(store *db.Store) tea.Cmd {
 	return func() tea.Msg {
-		count, bytes, err := db.PruneOrphans(dbPath)
+		count, bytes, err := store.PruneOrphans()
 		return prunedMsg{count: count, bytes: bytes, err: err}
 	}
 }
 
-func vacuumDB(dbPath string, beforeTotal int64) tea.Cmd {
+func vacuumDB(store *db.Store, beforeTotal int64) tea.Cmd {
 	return func() tea.Msg {
-		used, total, err := db.VacuumDB(dbPath)
+		used, total, err := store.VacuumDB()
 		return vacuumedMsg{dbUsed: used, dbTotal: total, beforeTotal: beforeTotal, err: err}
 	}
 }
 
-func reloadData(dbPath string, rootOnly bool, costPeriod CostPeriod) tea.Cmd {
+func reloadData(store *db.Store, rootOnly bool, costPeriod CostPeriod) tea.Cmd {
 	return func() tea.Msg {
-		sessions, err := db.LoadSessions(dbPath, rootOnly)
+		sessions, err := store.LoadSessions(rootOnly)
 		if err != nil {
 			return reloadedMsg{err: fmt.Errorf("loading sessions: %w", err)}
 		}
 
-		totalCount, err := db.SessionCount(dbPath)
+		totalCount, err := store.SessionCount()
 		if err != nil {
 			return reloadedMsg{err: fmt.Errorf("counting sessions: %w", err)}
 		}
 
-		dbUsed, dbTotal, err := db.DBStats(dbPath)
+		dbUsed, dbTotal, err := store.DBStats()
 		if err != nil {
 			return reloadedMsg{err: fmt.Errorf("reading db stats: %w", err)}
 		}
 
-		orphanCount, orphanBytes, _ := db.OrphanStats(dbPath)
+		orphanCount, orphanBytes, _ := store.OrphanStats()
 
 		var periodCost float64
 		if costPeriod != "" {
@@ -132,7 +132,7 @@ func reloadData(dbPath string, rootOnly bool, costPeriod CostPeriod) tea.Cmd {
 			if err != nil {
 				return reloadedMsg{err: fmt.Errorf("computing period bounds (%s): %w", costPeriod, err)}
 			}
-			periodCost, err = db.PeriodCost(dbPath, start.UnixMilli(), end.UnixMilli())
+			periodCost, err = store.PeriodCost(start.UnixMilli(), end.UnixMilli())
 			if err != nil {
 				return reloadedMsg{err: fmt.Errorf("reading period cost (%s): %w", costPeriod, err)}
 			}

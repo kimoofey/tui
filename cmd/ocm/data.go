@@ -16,22 +16,27 @@ func loadData(sessionsOnly bool, costPeriod ocm.CostPeriod) (ocm.Options, error)
 		return ocm.Options{}, fmt.Errorf("resolving db path: %w", err)
 	}
 
-	sessions, err := db.LoadSessions(dbPath, sessionsOnly)
+	store, err := db.Open(dbPath)
+	if err != nil {
+		return ocm.Options{}, fmt.Errorf("opening database %s: %w", dbPath, err)
+	}
+
+	sessions, err := store.LoadSessions(sessionsOnly)
 	if err != nil {
 		return ocm.Options{}, fmt.Errorf("loading sessions from %s: %w", dbPath, err)
 	}
 
-	totalCount, err := db.SessionCount(dbPath)
+	totalCount, err := store.SessionCount()
 	if err != nil {
 		return ocm.Options{}, fmt.Errorf("counting sessions: %w", err)
 	}
 
-	dbUsed, dbTotal, err := db.DBStats(dbPath)
+	dbUsed, dbTotal, err := store.DBStats()
 	if err != nil {
 		return ocm.Options{}, fmt.Errorf("reading db stats: %w", err)
 	}
 
-	orphanCount, orphanBytes, _ := db.OrphanStats(dbPath)
+	orphanCount, orphanBytes, _ := store.OrphanStats()
 
 	var periodCost float64
 	if costPeriod != "" {
@@ -39,7 +44,7 @@ func loadData(sessionsOnly bool, costPeriod ocm.CostPeriod) (ocm.Options, error)
 		if err != nil {
 			return ocm.Options{}, fmt.Errorf("computing period bounds (%s): %w", costPeriod, err)
 		}
-		periodCost, err = db.PeriodCost(dbPath, start.UnixMilli(), end.UnixMilli())
+		periodCost, err = store.PeriodCost(start.UnixMilli(), end.UnixMilli())
 		if err != nil {
 			return ocm.Options{}, fmt.Errorf("reading period cost (%s): %w", costPeriod, err)
 		}
@@ -54,7 +59,7 @@ func loadData(sessionsOnly bool, costPeriod ocm.CostPeriod) (ocm.Options, error)
 		PeriodCost:  periodCost,
 		OrphanCount: orphanCount,
 		OrphanBytes: orphanBytes,
-		DBPath:      dbPath,
+		Store:       store,
 		RootOnly:    sessionsOnly,
 	}, nil
 }

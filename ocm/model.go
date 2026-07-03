@@ -167,7 +167,7 @@ type Model struct {
 	dbTotal         int64
 	costPeriod      CostPeriod
 	periodCost      float64
-	dbPath          string
+	store           *db.Store
 	rootOnly        bool
 	homeDir         string
 	width           int
@@ -215,7 +215,7 @@ type Options struct {
 	PeriodCost  float64
 	OrphanCount int
 	OrphanBytes int64
-	DBPath      string
+	Store       *db.Store
 	RootOnly    bool
 }
 
@@ -262,7 +262,7 @@ func New(opts Options, termWidth, termHeight int) Model {
 		periodCost:    opts.PeriodCost,
 		orphanCount:   opts.OrphanCount,
 		orphanBytes:   opts.OrphanBytes,
-		dbPath:        opts.DBPath,
+		store:         opts.Store,
 		rootOnly:      opts.RootOnly,
 		homeDir:       homeDir,
 		width:         termWidth,
@@ -357,9 +357,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.bulkDeleting = true
 					m.bulkDeleteCount = len(ids)
-					return m, bulkDeleteSessions(ids, m.dbPath, m.rootOnly)
+					return m, bulkDeleteSessions(ids, m.store, m.rootOnly)
 				}
-				return m, deleteSession(m.sessions[m.deleteTarget].ID, m.dbPath)
+				return m, deleteSession(m.sessions[m.deleteTarget].ID, m.store)
 			}
 			m.deletePhase = deleteNone
 			return m, nil
@@ -370,7 +370,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "v" {
 				m.vacuumPhase = false
 				m.vacuuming = true
-				return m, vacuumDB(m.dbPath, m.dbTotal)
+				return m, vacuumDB(m.store, m.dbTotal)
 			}
 			m.vacuumPhase = false
 			return m, nil
@@ -381,7 +381,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "p" {
 				m.prunePhase = false
 				m.pruning = true
-				return m, pruneOrphans(m.dbPath)
+				return m, pruneOrphans(m.store)
 			}
 			m.prunePhase = false
 			return m, nil
@@ -429,7 +429,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // don't forward to table
 		case "r":
 			m.reloading = true
-			return m, reloadData(m.dbPath, m.rootOnly, m.costPeriod)
+			return m, reloadData(m.store, m.rootOnly, m.costPeriod)
 		case "v":
 			if m.dbTotal-m.dbUsed < minReclaimableBytes {
 				m.status = "nothing to vacuum"

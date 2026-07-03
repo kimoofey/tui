@@ -88,7 +88,7 @@ func loadData(sessionsOnly bool, costPeriod ocm.CostPeriod) (ocm.Options, error)
 		PeriodCost:  2.51,
 		OrphanCount: 3,
 		OrphanBytes: 81_920,
-		DBPath:      "/mock/opencode.db",
+		Store:       nil,
 		RootOnly:    sessionsOnly,
 	}, nil
 }

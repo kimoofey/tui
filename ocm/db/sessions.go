@@ -22,6 +22,26 @@ type Session struct {
 	Cost      float64
 }
 
+type Store struct {
+	conn   *sql.DB
+	dbPath string
+}
+
+func Open(dbPath string) (*Store, error) {
+	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
+	if err != nil {
+		return nil, fmt.Errorf("open db: %w", err)
+	}
+	conn.SetMaxOpenConns(1)
+	return &Store{conn: conn, dbPath: dbPath}, nil
+}
+
+func (s *Store) Close() error {
+	return s.conn.Close()
+}
+
+func (s *Store) Path() string { return s.dbPath }
+
 // DBPath returns the default path to the OpenCode SQLite database.
 func DBPath() (string, error) {
 	home, err := os.UserHomeDir()
@@ -34,21 +54,15 @@ func DBPath() (string, error) {
 // DBStats returns used and total byte sizes of the database file, derived
 // from SQLite page metrics. used = (page_count - freelist_count) * page_size,
 // total = page_count * page_size.
-func DBStats(dbPath string) (used, total int64, err error) {
-	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
-	if err != nil {
-		return 0, 0, fmt.Errorf("open db: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-
+func (s *Store) DBStats() (used, total int64, err error) {
 	var pageSize, pageCount, freelistCount int64
-	if err := conn.QueryRow(`PRAGMA page_size`).Scan(&pageSize); err != nil {
+	if err := s.conn.QueryRow(`PRAGMA page_size`).Scan(&pageSize); err != nil {
 		return 0, 0, fmt.Errorf("pragma page_size: %w", err)
 	}
-	if err := conn.QueryRow(`PRAGMA page_count`).Scan(&pageCount); err != nil {
+	if err := s.conn.QueryRow(`PRAGMA page_count`).Scan(&pageCount); err != nil {
 		return 0, 0, fmt.Errorf("pragma page_count: %w", err)
 	}
-	if err := conn.QueryRow(`PRAGMA freelist_count`).Scan(&freelistCount); err != nil {
+	if err := s.conn.QueryRow(`PRAGMA freelist_count`).Scan(&freelistCount); err != nil {
 		return 0, 0, fmt.Errorf("pragma freelist_count: %w", err)
 	}
 
@@ -58,45 +72,28 @@ func DBStats(dbPath string) (used, total int64, err error) {
 }
 
 // VacuumDB runs VACUUM on the database to reclaim free pages, then returns
-// updated used and total byte sizes.
-func VacuumDB(dbPath string) (used, total int64, err error) {
-	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=rw")
+// updated used and total byte sizes read from the shared connection.
+func (s *Store) VacuumDB() (used, total int64, err error) {
+	rw, err := sql.Open("sqlite", "file:"+s.dbPath+"?mode=rw")
 	if err != nil {
-		return 0, 0, fmt.Errorf("open db: %w", err)
+		return 0, 0, fmt.Errorf("open db for vacuum: %w", err)
 	}
 	defer func() {
-		if cerr := conn.Close(); cerr != nil && err == nil {
+		if cerr := rw.Close(); cerr != nil && err == nil {
 			err = cerr
 		}
 	}()
 
-	if _, err := conn.Exec(`VACUUM`); err != nil {
+	if _, err := rw.Exec(`VACUUM`); err != nil {
 		return 0, 0, fmt.Errorf("vacuum: %w", err)
 	}
 
-	var pageSize, pageCount int64
-	if err := conn.QueryRow(`PRAGMA page_size`).Scan(&pageSize); err != nil {
-		return 0, 0, fmt.Errorf("pragma page_size: %w", err)
-	}
-	if err := conn.QueryRow(`PRAGMA page_count`).Scan(&pageCount); err != nil {
-		return 0, 0, fmt.Errorf("pragma page_count: %w", err)
-	}
-
-	total = pageSize * pageCount
-	used = total
-	return used, total, nil
+	return s.DBStats()
 }
 
-// LoadSessions opens the OpenCode database and returns sessions sorted by
-// last-updated descending. If rootOnly is true, only top-level sessions
-// (parent_id IS NULL) are returned.
-func LoadSessions(dbPath string, rootOnly bool) ([]Session, error) {
-	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
-	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-
+// LoadSessions returns sessions sorted by last-updated descending.
+// If rootOnly is true, only top-level sessions (parent_id IS NULL) are returned.
+func (s *Store) LoadSessions(rootOnly bool) ([]Session, error) {
 	q := `SELECT id, title, directory, time_created, time_updated, cost
 		FROM session
 		ORDER BY time_updated DESC`
@@ -107,7 +104,7 @@ func LoadSessions(dbPath string, rootOnly bool) ([]Session, error) {
 		ORDER BY time_updated DESC`
 	}
 
-	rows, err := conn.Query(q)
+	rows, err := s.conn.Query(q)
 	if err != nil {
 		return nil, fmt.Errorf("query sessions: %w", err)
 	}
@@ -115,16 +112,16 @@ func LoadSessions(dbPath string, rootOnly bool) ([]Session, error) {
 
 	var sessions []Session
 	for rows.Next() {
-		var s Session
+		var sess Session
 		var createdMs, updatedMs int64
 
-		if err := rows.Scan(&s.ID, &s.Title, &s.Directory, &createdMs, &updatedMs, &s.Cost); err != nil {
+		if err := rows.Scan(&sess.ID, &sess.Title, &sess.Directory, &createdMs, &updatedMs, &sess.Cost); err != nil {
 			return nil, fmt.Errorf("scan row: %w", err)
 		}
 
-		s.Created = time.UnixMilli(createdMs)
-		s.Updated = time.UnixMilli(updatedMs)
-		sessions = append(sessions, s)
+		sess.Created = time.UnixMilli(createdMs)
+		sess.Updated = time.UnixMilli(updatedMs)
+		sessions = append(sessions, sess)
 	}
 
 	return sessions, rows.Err()
@@ -136,14 +133,8 @@ func diffDir(dbPath string) string {
 }
 
 // loadSessionIDs returns a set of all session IDs currently in the database.
-func loadSessionIDs(dbPath string) (map[string]struct{}, error) {
-	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
-	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-
-	rows, err := conn.Query(`SELECT id FROM session`)
+func (s *Store) loadSessionIDs() (map[string]struct{}, error) {
+	rows, err := s.conn.Query(`SELECT id FROM session`)
 	if err != nil {
 		return nil, fmt.Errorf("query session ids: %w", err)
 	}
@@ -162,13 +153,13 @@ func loadSessionIDs(dbPath string) (map[string]struct{}, error) {
 
 // OrphanStats returns the count and total byte size of session_diff JSON files
 // whose session no longer exists in the database.
-func OrphanStats(dbPath string) (count int, bytes int64, err error) {
-	ids, err := loadSessionIDs(dbPath)
+func (s *Store) OrphanStats() (count int, bytes int64, err error) {
+	ids, err := s.loadSessionIDs()
 	if err != nil {
 		return 0, 0, err
 	}
 
-	entries, err := os.ReadDir(diffDir(dbPath))
+	entries, err := os.ReadDir(diffDir(s.dbPath))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, 0, nil
@@ -200,13 +191,13 @@ func OrphanStats(dbPath string) (count int, bytes int64, err error) {
 
 // PruneOrphans deletes session_diff JSON files whose session no longer exists
 // in the database. Returns the number of files deleted and bytes freed.
-func PruneOrphans(dbPath string) (count int, bytes int64, err error) {
-	ids, err := loadSessionIDs(dbPath)
+func (s *Store) PruneOrphans() (count int, bytes int64, err error) {
+	ids, err := s.loadSessionIDs()
 	if err != nil {
 		return 0, 0, err
 	}
 
-	dir := diffDir(dbPath)
+	dir := diffDir(s.dbPath)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -248,34 +239,22 @@ func PruneOrphans(dbPath string) (count int, bytes int64, err error) {
 
 // SessionCount returns the total number of sessions in the database,
 // regardless of any filter applied to LoadSessions.
-func SessionCount(dbPath string) (int, error) {
-	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
-	if err != nil {
-		return 0, fmt.Errorf("open db: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-
+func (s *Store) SessionCount() (int, error) {
 	var count int
-	if err := conn.QueryRow(`SELECT COUNT(*) FROM session`).Scan(&count); err != nil {
+	if err := s.conn.QueryRow(`SELECT COUNT(*) FROM session`).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count sessions: %w", err)
 	}
 	return count, nil
 }
 
 // PeriodCost returns summed message-level costs in [startMs, endMs).
-func PeriodCost(dbPath string, startMs, endMs int64) (float64, error) {
-	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
-	if err != nil {
-		return 0, fmt.Errorf("open db: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-
+func (s *Store) PeriodCost(startMs, endMs int64) (float64, error) {
 	q := `SELECT COALESCE(SUM(CAST(json_extract(m.data, '$.cost') AS REAL)), 0)
 		FROM message m
 		WHERE m.time_created >= ? AND m.time_created < ?`
 
 	var total float64
-	if err := conn.QueryRow(q, startMs, endMs).Scan(&total); err != nil {
+	if err := s.conn.QueryRow(q, startMs, endMs).Scan(&total); err != nil {
 		return 0, fmt.Errorf("sum period cost: %w", err)
 	}
 	return total, nil

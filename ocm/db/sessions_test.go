@@ -13,8 +13,9 @@ import (
 )
 
 // createTestDB creates a temporary SQLite database with the session table
-// and returns its path. The caller should defer os.Remove on the path.
-func createTestDB(t *testing.T, sessions []Session) string {
+// and returns a Store connected to it. The Store is automatically closed
+// when the test completes.
+func createTestStore(t *testing.T, sessions []Session) *Store {
 	t.Helper()
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "opencode.db")
@@ -25,7 +26,7 @@ func createTestDB(t *testing.T, sessions []Session) string {
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
-			t.Errorf("failed to close connection: %v", err)
+			t.Errorf("failed to close setup connection: %v", err)
 		}
 	}()
 
@@ -54,7 +55,13 @@ func createTestDB(t *testing.T, sessions []Session) string {
 		}
 	}
 
-	return dbPath
+	store, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	return store
 }
 
 var testSessions = []Session{
@@ -85,9 +92,9 @@ var testSessions = []Session{
 }
 
 func TestLoadSessions_ReturnsAllSortedByUpdatedDesc(t *testing.T) {
-	dbPath := createTestDB(t, testSessions)
+	store := createTestStore(t, testSessions)
 
-	sessions, err := LoadSessions(dbPath, false)
+	sessions, err := store.LoadSessions(false)
 	if err != nil {
 		t.Fatalf("LoadSessions: %v", err)
 	}
@@ -106,9 +113,9 @@ func TestLoadSessions_ReturnsAllSortedByUpdatedDesc(t *testing.T) {
 }
 
 func TestLoadSessions_Fields(t *testing.T) {
-	dbPath := createTestDB(t, testSessions[:1])
+	store := createTestStore(t, testSessions[:1])
 
-	sessions, err := LoadSessions(dbPath, false)
+	sessions, err := store.LoadSessions(false)
 	if err != nil {
 		t.Fatalf("LoadSessions: %v", err)
 	}
@@ -132,9 +139,9 @@ func TestLoadSessions_Fields(t *testing.T) {
 }
 
 func TestLoadSessions_Empty(t *testing.T) {
-	dbPath := createTestDB(t, nil)
+	store := createTestStore(t, nil)
 
-	sessions, err := LoadSessions(dbPath, false)
+	sessions, err := store.LoadSessions(false)
 	if err != nil {
 		t.Fatalf("LoadSessions on empty db: %v", err)
 	}
@@ -144,9 +151,9 @@ func TestLoadSessions_Empty(t *testing.T) {
 }
 
 func TestSessionCount(t *testing.T) {
-	dbPath := createTestDB(t, testSessions)
+	store := createTestStore(t, testSessions)
 
-	count, err := SessionCount(dbPath)
+	count, err := store.SessionCount()
 	if err != nil {
 		t.Fatalf("SessionCount: %v", err)
 	}
@@ -156,9 +163,9 @@ func TestSessionCount(t *testing.T) {
 }
 
 func TestSessionCount_Empty(t *testing.T) {
-	dbPath := createTestDB(t, nil)
+	store := createTestStore(t, nil)
 
-	count, err := SessionCount(dbPath)
+	count, err := store.SessionCount()
 	if err != nil {
 		t.Fatalf("SessionCount on empty db: %v", err)
 	}
@@ -168,9 +175,9 @@ func TestSessionCount_Empty(t *testing.T) {
 }
 
 func TestDBStats(t *testing.T) {
-	dbPath := createTestDB(t, testSessions)
+	store := createTestStore(t, testSessions)
 
-	used, total, err := DBStats(dbPath)
+	used, total, err := store.DBStats()
 	if err != nil {
 		t.Fatalf("DBStats: %v", err)
 	}
@@ -186,15 +193,15 @@ func TestDBStats(t *testing.T) {
 }
 
 func TestOrphanStats_NoOrphans(t *testing.T) {
-	dbPath := createTestDB(t, testSessions)
+	store := createTestStore(t, testSessions)
 
 	// Create the session_diff dir but no files
-	diffDir := filepath.Join(filepath.Dir(dbPath), "storage", "session_diff")
-	if err := os.MkdirAll(diffDir, 0o755); err != nil {
+	diffPath := filepath.Join(filepath.Dir(store.Path()), "storage", "session_diff")
+	if err := os.MkdirAll(diffPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	count, bytes, err := OrphanStats(dbPath)
+	count, bytes, err := store.OrphanStats()
 	if err != nil {
 		t.Fatalf("OrphanStats: %v", err)
 	}
@@ -207,25 +214,25 @@ func TestOrphanStats_NoOrphans(t *testing.T) {
 }
 
 func TestOrphanStats_WithOrphans(t *testing.T) {
-	dbPath := createTestDB(t, testSessions[:1])
+	store := createTestStore(t, testSessions[:1])
 
-	diffDir := filepath.Join(filepath.Dir(dbPath), "storage", "session_diff")
-	if err := os.MkdirAll(diffDir, 0o755); err != nil {
+	diffPath := filepath.Join(filepath.Dir(store.Path()), "storage", "session_diff")
+	if err := os.MkdirAll(diffPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	// Write a diff file for a session NOT in the DB — orphan
-	orphanFile := filepath.Join(diffDir, "orphan-id.json")
+	orphanFile := filepath.Join(diffPath, "orphan-id.json")
 	if err := os.WriteFile(orphanFile, []byte(`{"data":"test"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// Write a diff file for sess-1 — not an orphan
-	knownFile := filepath.Join(diffDir, "sess-1.json")
+	knownFile := filepath.Join(diffPath, "sess-1.json")
 	if err := os.WriteFile(knownFile, []byte(`{}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	count, bytes, err := OrphanStats(dbPath)
+	count, bytes, err := store.OrphanStats()
 	if err != nil {
 		t.Fatalf("OrphanStats: %v", err)
 	}
@@ -238,9 +245,9 @@ func TestOrphanStats_WithOrphans(t *testing.T) {
 }
 
 func TestPeriodCost(t *testing.T) {
-	dbPath := createTestDB(t, testSessions)
+	store := createTestStore(t, testSessions)
 
-	conn, err := sql.Open("sqlite", "file:"+dbPath)
+	conn, err := sql.Open("sqlite", "file:"+store.Path())
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
 	}
@@ -290,7 +297,7 @@ func TestPeriodCost(t *testing.T) {
 	weekStart := time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC).UnixMilli()
 	yearStart := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
 
-	month, err := PeriodCost(dbPath, monthStart, now.UnixMilli())
+	month, err := store.PeriodCost(monthStart, now.UnixMilli())
 	if err != nil {
 		t.Fatalf("PeriodCost(month): %v", err)
 	}
@@ -298,7 +305,7 @@ func TestPeriodCost(t *testing.T) {
 		t.Errorf("month cost = %.2f; want 3.50", month)
 	}
 
-	week, err := PeriodCost(dbPath, weekStart, now.UnixMilli())
+	week, err := store.PeriodCost(weekStart, now.UnixMilli())
 	if err != nil {
 		t.Fatalf("PeriodCost(week): %v", err)
 	}
@@ -306,7 +313,7 @@ func TestPeriodCost(t *testing.T) {
 		t.Errorf("week cost = %.2f; want 0.40", week)
 	}
 
-	year, err := PeriodCost(dbPath, yearStart, now.UnixMilli())
+	year, err := store.PeriodCost(yearStart, now.UnixMilli())
 	if err != nil {
 		t.Fatalf("PeriodCost(year): %v", err)
 	}
