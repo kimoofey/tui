@@ -18,15 +18,17 @@ func TestParseStoragePaths(t *testing.T) {
 	data := filepath.Join(home, ".local", "share", "opencode")
 	for _, tt := range []struct {
 		name, output, override, xdg, wantDB string
-		v2, standalone, prune               bool
+		v2, prune                           bool
 	}{
-		{"v1 default", "data       " + data, "", "", filepath.Join(data, "opencode.db"), false, false, true},
-		{"v2 default", "data       " + data + "\ndb         " + filepath.Join(data, "opencode.db"), "", "", filepath.Join(data, "opencode.db"), true, false, true},
-		{"v1 relative override", "data       " + data, "custom.db", "", filepath.Join(data, "custom.db"), false, false, false},
-		{"v1 absolute override", "data       " + data, "/tmp/session data/custom.db", "", "/tmp/session data/custom.db", false, false, false},
-		{"v2 authoritative path", "data       " + data + "\ndb         /tmp/other.db", "ignored.db", "", "/tmp/other.db", true, true, false},
-		{"channel", "data       " + data + "\ndb         " + filepath.Join(data, "opencode-canary.db"), "", "", filepath.Join(data, "opencode-canary.db"), true, true, false},
-		{"XDG and spaces", "home /unused\r\ndata\t/tmp/my data/opencode\r\ndb\t/tmp/my data/opencode/opencode.db\r\n", "", "/tmp/my data", "/tmp/my data/opencode/opencode.db", true, true, true},
+		{"v1 default", "data       " + data, "", "", filepath.Join(data, "opencode.db"), false, true},
+		{"v2 default", "data       " + data + "\ndb         " + filepath.Join(data, "opencode.db"), "", "", filepath.Join(data, "opencode.db"), true, true},
+		{"v1 relative override", "data       " + data, "custom.db", "", filepath.Join(data, "custom.db"), false, false},
+		{"v1 absolute override", "data       " + data, "/tmp/session data/custom.db", "", "/tmp/session data/custom.db", false, false},
+		{"v2 authoritative path", "data       " + data + "\ndb         /tmp/other.db", "ignored.db", "", "/tmp/other.db", true, false},
+		{"channel", "data       " + data + "\ndb         " + filepath.Join(data, "opencode-canary.db"), "", "", filepath.Join(data, "opencode-canary.db"), true, false},
+		{"XDG and spaces", "home /unused\r\ndata\t/tmp/my data/opencode\r\ndb\t/tmp/my data/opencode/opencode.db\r\n", "", "/tmp/my data", "/tmp/my data/opencode/opencode.db", true, true},
+		{"trailing spaces", "data /tmp/opencode\ndb /tmp/custom.db  \n", "", "", "/tmp/custom.db  ", true, false},
+		{"trailing tab with CRLF", "data /tmp/opencode\r\ndb /tmp/custom.db\t\r\n", "", "", "/tmp/custom.db\t", true, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("OPENCODE_DB", tt.override)
@@ -35,7 +37,7 @@ func TestParseStoragePaths(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.DBPath != tt.wantDB || got.V2CLI != tt.v2 || got.Standalone != tt.standalone || got.PruneSupported() != tt.prune {
+			if got.DBPath != tt.wantDB || got.V2CLI != tt.v2 || got.PruneSupported() != tt.prune {
 				t.Fatalf("storage = %+v, prune=%v", got, got.PruneSupported())
 			}
 			if got.Executable != "/tmp/bin/opencode" {
@@ -90,6 +92,43 @@ printf 'data       %s\ndb         %s\n' "$OCM_TEST_DATA" "$OCM_TEST_DB"
 	}
 	if storage.DBPath != os.Getenv("OCM_TEST_DB") || storage.Executable != executable || !storage.V2CLI {
 		t.Fatalf("storage = %+v", storage)
+	}
+}
+
+func TestDiscoverStorage_OpensExactFilenameWithTrailingWhitespace(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "opencode")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeOpenCode(t, `printf 'data       %s\ndb         %s\n' "$OCM_TEST_DATA" "$OCM_TEST_DB"`)
+	t.Setenv("OCM_TEST_DATA", dataDir)
+	for _, suffix := range []string{"", "  ", "\t"} {
+		path := filepath.Join(dataDir, "custom.db"+suffix)
+		writer := testWriter(t, path)
+		execTestSQL(t, writer, v2Schema)
+		execTestSQL(t, writer, `INSERT INTO session_v2 VALUES ('session', ?, '/project', 1, 1, 0, NULL, NULL)`, "filename suffix:"+suffix)
+	}
+	for _, suffix := range []string{"  ", "\t"} {
+		t.Run("suffix="+suffix, func(t *testing.T) {
+			path := filepath.Join(dataDir, "custom.db"+suffix)
+			t.Setenv("OCM_TEST_DB", path)
+			storage, err := DiscoverStorage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if storage.DBPath != path {
+				t.Fatalf("discovered path=%q, want=%q", storage.DBPath, path)
+			}
+			store, err := OpenStorage(storage)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = store.Close() }()
+			sessions, err := store.LoadSessions(false)
+			if err != nil || len(sessions) != 1 || sessions[0].Title != "filename suffix:"+suffix {
+				t.Fatalf("opened wrong database: sessions=%v, error=%v", sessions, err)
+			}
+		})
 	}
 }
 

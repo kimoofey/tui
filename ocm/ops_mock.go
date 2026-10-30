@@ -10,7 +10,7 @@ import (
 
 func bulkDeleteSessions(ids []string, _ *db.Store, _ bool, _ CostPeriod) tea.Cmd {
 	return func() tea.Msg {
-		return bulkDeletedMsg{count: len(ids)}
+		return bulkDeletedMsg{count: len(ids), ids: append([]string(nil), ids...)}
 	}
 }
 

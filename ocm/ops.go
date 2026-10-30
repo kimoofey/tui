@@ -35,7 +35,7 @@ func bulkDeleteSessions(ids []string, store *db.Store, rootOnly bool, costPeriod
 		if len(deleteErrs) != 0 {
 			deleteErr = errors.New(strings.Join(deleteErrs, "; "))
 		}
-		return bulkDeletedMsg{count: len(ids) - len(deleteErrs), data: data, err: errors.Join(deleteErr, data.err)}
+		return bulkDeletedMsg{count: len(ids) - len(deleteErrs), data: &data, err: errors.Join(deleteErr, data.err)}
 	}
 }
 
@@ -65,7 +65,7 @@ func runDelete(ctx context.Context, storage db.StorageContext, id string) error 
 }
 
 func sessionArgs(storage db.StorageContext, args ...string) []string {
-	if storage.V2CLI && storage.Standalone {
+	if storage.V2CLI {
 		args = append(args, "--standalone")
 	}
 	return args

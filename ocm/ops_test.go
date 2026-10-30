@@ -63,7 +63,7 @@ printf '%s\000' "$OPENCODE_DB" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "${OPENCODE_C
 	storage := db.StorageContext{
 		DBPath:  "/tmp/db 'quote' $(literal) `literal` \\.db",
 		DataDir: "/tmp/data 'quote' $literal/opencode", Executable: executable,
-		V2CLI: true, Standalone: true,
+		V2CLI: true,
 	}
 	id := "ses_'$(literal)`literal`\n\\\""
 	for _, terminal := range []string{"terminal", "iterm2", "ghostty", "custom-terminal --"} {
@@ -120,25 +120,41 @@ printf '%s\000' "$OPENCODE_DB" "$XDG_DATA_HOME" > "$OCM_TEST_RECORD.env"
 	t.Setenv("OPENCODE_DB", "wrong.db")
 	t.Setenv("XDG_DATA_HOME", "/wrong")
 	for _, tt := range []struct {
-		name           string
-		v2, standalone bool
+		name string
+		v2   bool
 	}{
-		{"V1", false, true}, {"V2 default", true, false}, {"V2 custom", true, true},
+		{"V1", false}, {"V2 default", true}, {"V2 custom", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			storage := db.StorageContext{DBPath: "/tmp/db with spaces.db", DataDir: "/tmp/data/opencode", Executable: executable, V2CLI: tt.v2, Standalone: tt.standalone}
+			storage := db.StorageContext{DBPath: "/tmp/db with spaces.db", DataDir: "/tmp/data/opencode", Executable: executable, V2CLI: tt.v2}
+			if tt.name == "V2 default" {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					t.Fatal(err)
+				}
+				storage.DataDir = filepath.Join(home, ".local", "share", "opencode")
+				storage.DBPath = filepath.Join(storage.DataDir, "opencode.db")
+			}
 			if err := runDelete(context.Background(), storage, "ses_'literal'"); err != nil {
 				t.Fatal(err)
 			}
 			want := []string{"session", "delete", "ses_'literal'"}
-			if tt.v2 && tt.standalone {
+			if tt.v2 {
 				want = append(want, "--standalone")
 			}
 			if got := readNULFields(t, record); !reflect.DeepEqual(got, want) {
 				t.Fatalf("delete args=%q, want=%q", got, want)
 			}
-			if got := readNULFields(t, record+".env"); !reflect.DeepEqual(got, []string{storage.DBPath, "/tmp/data"}) {
+			if got := readNULFields(t, record+".env"); !reflect.DeepEqual(got, []string{storage.DBPath, filepath.Dir(storage.DataDir)}) {
 				t.Fatalf("delete environment=%q", got)
+			}
+			wantResume := []string{"-s", "ses_resume"}
+			if tt.v2 {
+				wantResume = append(wantResume, "--standalone")
+			}
+			resume := terminalSessionArgs(storage, "ses_resume")
+			if got := resume[len(resume)-len(wantResume):]; !reflect.DeepEqual(got, wantResume) {
+				t.Fatalf("resume args=%q, want=%q", got, wantResume)
 			}
 		})
 	}
@@ -219,7 +235,7 @@ func deleteTestStore(t *testing.T) *db.Store {
 	}
 	t.Setenv("OCM_TEST_BINARY", binary)
 	t.Setenv("OCM_DELETE_HELPER", "1")
-	store, err := db.OpenStorage(db.StorageContext{DBPath: path, DataDir: dataDir, Executable: executable, V2CLI: true, Standalone: true})
+	store, err := db.OpenStorage(db.StorageContext{DBPath: path, DataDir: dataDir, Executable: executable, V2CLI: true})
 	if err != nil {
 		t.Fatal(err)
 	}

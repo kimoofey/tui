@@ -24,9 +24,10 @@ merged into the list, so deleted sessions stay deleted. Untitled V2 sessions
 appear as “Untitled session.” Browsing opens the database read-only and never
 runs migrations.
 
-Resume and delete use the same executable and database that OCM reads. With V2
-custom storage, those actions use `--standalone` to avoid connecting to a
-background service using another database.
+Resume and delete use the same executable and database that OCM reads. All V2
+actions use `--standalone`, including those using the default database path, to
+avoid connecting to a background service using another database. This starts
+a private server for the action instead of reusing the background service.
 
 ## Install
 

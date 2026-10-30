@@ -62,7 +62,7 @@ printf 'data       %s\ndb         %s\n' "$OCM_TEST_DATA" "$OCM_TEST_DB"
 		t.Fatalf("incorrect startup stats: cost=%v, rootOnly=%v, bytes=%d", opts.PeriodCost, opts.RootOnly, opts.DBTotal)
 	}
 	storage := opts.Store.Storage()
-	if storage.DBPath != path || storage.DataDir != dataDir || storage.Executable != executable || !storage.V2CLI || !storage.Standalone || storage.PruneSupported() {
+	if storage.DBPath != path || storage.DataDir != dataDir || storage.Executable != executable || !storage.V2CLI || storage.PruneSupported() {
 		t.Fatalf("storage context was not preserved: %+v", storage)
 	}
 }

@@ -132,7 +132,8 @@ type deletedMsg struct {
 // bulkDeletedMsg is sent back after a bulk delete completes.
 type bulkDeletedMsg struct {
 	count int
-	data  reloadedMsg
+	ids   []string
+	data  *reloadedMsg // nil for mock command acknowledgements
 	err   error
 }
 
@@ -481,18 +482,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.data != nil && msg.data.err == nil {
 			m.applyData(*msg.data)
 		} else if msg.data == nil && msg.err == nil {
-			// Mock commands acknowledge deletion without a database to reload.
-			for i, session := range m.sessions {
-				if session.ID == msg.sessionID {
-					m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
-					m.totalSessions--
-					break
-				}
-			}
-			m.rebuildRows()
-			if m.table.Cursor() >= len(m.sessions) {
-				m.table.SetCursor(max(len(m.sessions)-1, 0))
-			}
+			m.removeAcknowledgedSessions([]string{msg.sessionID})
 		}
 		if msg.err != nil {
 			m.status = fmt.Sprintf("error deleting session: %s", msg.err)
@@ -504,8 +494,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bulkDeletedMsg:
 		m.bulkDeleting = false
-		if msg.data.err == nil {
-			m.applyData(msg.data)
+		if msg.data != nil && msg.data.err == nil {
+			m.applyData(*msg.data)
+		} else if msg.data == nil && msg.err == nil {
+			m.removeAcknowledgedSessions(msg.ids)
 		}
 		if msg.err != nil {
 			m.status = fmt.Sprintf("error during bulk delete: %s", msg.err)
@@ -567,6 +559,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
+}
+
+// Mock commands acknowledge deletion without a database snapshot. Keep all
+// unrelated statistics while removing only the acknowledged rows.
+func (m *Model) removeAcknowledgedSessions(ids []string) {
+	removed := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		removed[id] = true
+	}
+	remaining := make([]db.Session, 0, len(m.sessions))
+	for _, session := range m.sessions {
+		if removed[session.ID] {
+			m.totalSessions--
+		} else {
+			remaining = append(remaining, session)
+		}
+	}
+	m.sessions = remaining
+	m.selected = make(map[string]bool)
+	m.deletePhase = deleteNone
+	m.rebuildRows()
+	if m.table.Cursor() >= len(m.sessions) {
+		m.table.SetCursor(max(len(m.sessions)-1, 0))
+	}
 }
 
 func (m *Model) applyData(msg reloadedMsg) {

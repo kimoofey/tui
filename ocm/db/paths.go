@@ -17,7 +17,6 @@ type StorageContext struct {
 	DataDir    string
 	Executable string
 	V2CLI      bool
-	Standalone bool
 }
 
 // DiscoverStorage asks OpenCode for paths without starting a server or opening
@@ -52,7 +51,7 @@ func discoverStorage(ctx context.Context) (StorageContext, error) {
 func parseStoragePaths(output, executable string) (StorageContext, error) {
 	paths := make(map[string]string)
 	for line := range strings.SplitSeq(output, "\n") {
-		line = strings.TrimSpace(line)
+		line = strings.TrimLeft(strings.TrimSuffix(line, "\r"), " \t")
 		i := strings.IndexAny(line, " \t")
 		if i < 0 {
 			if line != "data" && line != "db" {
@@ -65,7 +64,7 @@ func parseStoragePaths(output, executable string) (StorageContext, error) {
 			if _, exists := paths[key]; exists {
 				return StorageContext{}, fmt.Errorf("duplicate %s in OpenCode paths", key)
 			}
-			paths[key] = strings.TrimSpace(value)
+			paths[key] = strings.TrimLeft(value, " \t")
 		}
 	}
 	data := paths["data"]
@@ -92,13 +91,6 @@ func parseStoragePaths(output, executable string) (StorageContext, error) {
 		DBPath: filepath.Clean(filename), DataDir: filepath.Clean(data),
 		Executable: executable, V2CLI: v2,
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return StorageContext{}, fmt.Errorf("determine home directory: %w", err)
-	}
-	storage.Standalone = v2 && (os.Getenv("OPENCODE_DB") != "" ||
-		os.Getenv("XDG_DATA_HOME") != "" ||
-		storage.DBPath != filepath.Join(home, ".local", "share", "opencode", "opencode.db"))
 	return storage, nil
 }
 
