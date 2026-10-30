@@ -125,16 +125,15 @@ type openedMsg struct {
 // deletedMsg is sent back to the model after attempting to delete a session.
 type deletedMsg struct {
 	sessionID string
-	newTotal  int
+	data      *reloadedMsg // nil for mock command acknowledgements
 	err       error
 }
 
 // bulkDeletedMsg is sent back after a bulk delete completes.
 type bulkDeletedMsg struct {
-	count    int
-	sessions []db.Session
-	newTotal int
-	err      error
+	count int
+	data  reloadedMsg
+	err   error
 }
 
 // reloadedMsg is sent back after a full data reload completes.
@@ -357,9 +356,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.bulkDeleting = true
 					m.bulkDeleteCount = len(ids)
-					return m, bulkDeleteSessions(ids, m.store, m.rootOnly)
+					return m, bulkDeleteSessions(ids, m.store, m.rootOnly, m.costPeriod)
 				}
-				return m, deleteSession(m.sessions[m.deleteTarget].ID, m.store)
+				m.bulkDeleting = true
+				m.bulkDeleteCount = 1
+				return m, deleteSession(m.sessions[m.deleteTarget].ID, m.store, m.rootOnly, m.costPeriod)
 			}
 			m.deletePhase = deleteNone
 			return m, nil
@@ -410,7 +411,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			sid := m.sessions[idx].ID
-			return m, openSession(sid)
+			return m, openSession(sid, m.store)
 		case "d":
 			if len(m.sessions) == 0 {
 				break
@@ -439,6 +440,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.vacuumPhase = true
 			return m, nil
 		case "p":
+			if m.store != nil && !m.store.Storage().PruneSupported() {
+				m.status = "pruning unavailable for custom/channel databases: legacy diff files are shared"
+				m.statusOK = false
+				return m, nil
+			}
 			if m.orphanCount == 0 {
 				m.status = "nothing to prune"
 				m.statusOK = false
@@ -471,42 +477,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case deletedMsg:
+		m.bulkDeleting = false
+		if msg.data != nil && msg.data.err == nil {
+			m.applyData(*msg.data)
+		} else if msg.data == nil && msg.err == nil {
+			// Mock commands acknowledge deletion without a database to reload.
+			for i, session := range m.sessions {
+				if session.ID == msg.sessionID {
+					m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
+					m.totalSessions--
+					break
+				}
+			}
+			m.rebuildRows()
+			if m.table.Cursor() >= len(m.sessions) {
+				m.table.SetCursor(max(len(m.sessions)-1, 0))
+			}
+		}
 		if msg.err != nil {
 			m.status = fmt.Sprintf("error deleting session: %s", msg.err)
 			m.statusOK = false
 		} else {
-			for i, s := range m.sessions {
-				if s.ID == msg.sessionID {
-					m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
-					break
-				}
-			}
-			if msg.newTotal > 0 {
-				m.totalSessions = msg.newTotal
-			} else {
-				m.totalSessions--
-			}
-			m.rebuildRows()
-			if m.table.Cursor() >= len(m.sessions) && len(m.sessions) > 0 {
-				m.table.SetCursor(len(m.sessions) - 1)
-			}
 			m.status = fmt.Sprintf("deleted %s", msg.sessionID)
 			m.statusOK = true
 		}
 
 	case bulkDeletedMsg:
 		m.bulkDeleting = false
+		if msg.data.err == nil {
+			m.applyData(msg.data)
+		}
 		if msg.err != nil {
 			m.status = fmt.Sprintf("error during bulk delete: %s", msg.err)
 			m.statusOK = false
 		} else {
-			m.sessions = msg.sessions
-			m.totalSessions = msg.newTotal
-			m.selected = make(map[string]bool)
-			m.rebuildRows()
-			if m.table.Cursor() >= len(m.sessions) && len(m.sessions) > 0 {
-				m.table.SetCursor(len(m.sessions) - 1)
-			}
 			if msg.count == 1 {
 				m.status = "deleted 1 session"
 			} else {
@@ -521,23 +525,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("reload failed: %s", msg.err)
 			m.statusOK = false
 		} else {
-			m.sessions = msg.sessions
-			m.totalSessions = msg.newTotal
-			m.dbUsed = msg.dbUsed
-			m.dbTotal = msg.dbTotal
-			m.orphanCount = msg.orphanCount
-			m.orphanBytes = msg.orphanBytes
-			if m.costPeriod != "" {
-				m.periodCost = msg.periodCost
-			}
-			m.selected = make(map[string]bool)
-			m.deletePhase = deleteNone
-			m.rebuildRows()
-			if len(m.sessions) == 0 {
-				m.table.SetCursor(0)
-			} else if m.table.Cursor() >= len(m.sessions) {
-				m.table.SetCursor(len(m.sessions) - 1)
-			}
+			m.applyData(msg)
 			m.status = "reloaded"
 			m.statusOK = true
 		}
@@ -579,6 +567,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
+}
+
+func (m *Model) applyData(msg reloadedMsg) {
+	m.sessions = msg.sessions
+	m.totalSessions = msg.newTotal
+	m.dbUsed = msg.dbUsed
+	m.dbTotal = msg.dbTotal
+	m.orphanCount = msg.orphanCount
+	m.orphanBytes = msg.orphanBytes
+	m.periodCost = msg.periodCost
+	m.selected = make(map[string]bool)
+	m.deletePhase = deleteNone
+	m.rebuildRows()
+	if len(m.sessions) == 0 {
+		m.table.SetCursor(0)
+	} else if m.table.Cursor() >= len(m.sessions) {
+		m.table.SetCursor(len(m.sessions) - 1)
+	}
 }
 
 func (m Model) View() tea.View {

@@ -8,19 +8,19 @@ import (
 	"github.com/kimoofey/tui/ocm/db"
 )
 
-func bulkDeleteSessions(ids []string, _ *db.Store, _ bool) tea.Cmd {
+func bulkDeleteSessions(ids []string, _ *db.Store, _ bool, _ CostPeriod) tea.Cmd {
 	return func() tea.Msg {
-		return bulkDeletedMsg{count: len(ids), sessions: []db.Session{}, newTotal: 0}
+		return bulkDeletedMsg{count: len(ids)}
 	}
 }
 
-func deleteSession(sessionID string, _ *db.Store) tea.Cmd {
+func deleteSession(sessionID string, _ *db.Store, _ bool, _ CostPeriod) tea.Cmd {
 	return func() tea.Msg {
-		return deletedMsg{sessionID: sessionID, newTotal: 0}
+		return deletedMsg{sessionID: sessionID}
 	}
 }
 
-func openSession(sessionID string) tea.Cmd {
+func openSession(sessionID string, _ *db.Store) tea.Cmd {
 	return func() tea.Msg {
 		return openedMsg{sessionID: sessionID}
 	}

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,32 +24,79 @@ type Session struct {
 }
 
 type Store struct {
-	conn   *sql.DB
-	dbPath string
+	conn    *sql.DB
+	storage StorageContext
 }
 
 func Open(dbPath string) (*Store, error) {
-	conn, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
+	return OpenStorage(StorageContext{DBPath: dbPath, DataDir: filepath.Dir(dbPath)})
+}
+
+func sqliteURI(path, mode string) string {
+	return (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=" + mode}).String()
+}
+
+func OpenStorage(storage StorageContext) (*Store, error) {
+	if storage.DBPath == ":memory:" {
+		return nil, errors.New("in-memory storage is unsupported; OCM requires a database file")
+	}
+	var err error
+	storage.DBPath, err = filepath.Abs(storage.DBPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve database path: %w", err)
+	}
+	storage.DataDir, err = filepath.Abs(storage.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve data directory: %w", err)
+	}
+	info, err := os.Stat(storage.DBPath)
+	if err != nil {
+		return nil, fmt.Errorf("access database %s: %w", storage.DBPath, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("database %s is not a regular file", storage.DBPath)
+	}
+	conn, err := sql.Open("sqlite", sqliteURI(storage.DBPath, "ro"))
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 	conn.SetMaxOpenConns(1)
-	return &Store{conn: conn, dbPath: dbPath}, nil
+	store := &Store{conn: conn, storage: storage}
+	if _, err := store.sessionTable(); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("read database %s: %w", storage.DBPath, err)
+	}
+	return store, nil
 }
 
 func (s *Store) Close() error {
 	return s.conn.Close()
 }
 
-func (s *Store) Path() string { return s.dbPath }
+func (s *Store) Path() string { return s.storage.DBPath }
 
-// DBPath returns the default path to the OpenCode SQLite database.
-func DBPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot determine home directory: %w", err)
+func (s *Store) Storage() StorageContext { return s.storage }
+
+// sessionTable probes each time so a migration during OCM's lifetime is seen.
+// Never fall back from an empty or incompatible V2 table to frozen V1 rows.
+func (s *Store) sessionTable() (string, error) {
+	var table string
+	err := s.conn.QueryRow(`SELECT name FROM sqlite_master
+		WHERE type = 'table' AND name IN ('session_v2', 'session')
+		ORDER BY CASE name WHEN 'session_v2' THEN 0 ELSE 1 END LIMIT 1`).Scan(&table)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errors.New("unsupported OpenCode schema: no session or session_v2 table")
 	}
-	return filepath.Join(home, ".local", "share", "opencode", "opencode.db"), nil
+	if err != nil {
+		return "", fmt.Errorf("detect session schema: %w", err)
+	}
+	// Table names come only from the fixed allowlist above.
+	rows, err := s.conn.Query(`SELECT id, title, directory, time_created, time_updated, cost, parent_id FROM ` + table + ` LIMIT 0`)
+	if err != nil {
+		return "", fmt.Errorf("unsupported OpenCode schema (%s): %w", table, err)
+	}
+	_ = rows.Close()
+	return table, nil
 }
 
 // DBStats returns used and total byte sizes of the database file, derived
@@ -74,7 +122,7 @@ func (s *Store) DBStats() (used, total int64, err error) {
 // VacuumDB runs VACUUM on the database to reclaim free pages, then returns
 // updated used and total byte sizes read from the shared connection.
 func (s *Store) VacuumDB() (used, total int64, err error) {
-	rw, err := sql.Open("sqlite", "file:"+s.dbPath+"?mode=rw")
+	rw, err := sql.Open("sqlite", sqliteURI(s.Path(), "rw"))
 	if err != nil {
 		return 0, 0, fmt.Errorf("open db for vacuum: %w", err)
 	}
@@ -94,15 +142,15 @@ func (s *Store) VacuumDB() (used, total int64, err error) {
 // LoadSessions returns sessions sorted by last-updated descending.
 // If rootOnly is true, only top-level sessions (parent_id IS NULL) are returned.
 func (s *Store) LoadSessions(rootOnly bool) ([]Session, error) {
-	q := `SELECT id, title, directory, time_created, time_updated, cost
-		FROM session
-		ORDER BY time_updated DESC`
-	if rootOnly {
-		q = `SELECT id, title, directory, time_created, time_updated, cost
-		FROM session
-		WHERE parent_id IS NULL
-		ORDER BY time_updated DESC`
+	table, err := s.sessionTable()
+	if err != nil {
+		return nil, err
 	}
+	q := `SELECT id, COALESCE(title, 'Untitled session'), directory, time_created, time_updated, cost FROM ` + table
+	if rootOnly {
+		q += ` WHERE parent_id IS NULL`
+	}
+	q += ` ORDER BY time_updated DESC, id DESC`
 
 	rows, err := s.conn.Query(q)
 	if err != nil {
@@ -127,14 +175,17 @@ func (s *Store) LoadSessions(rootOnly bool) ([]Session, error) {
 	return sessions, rows.Err()
 }
 
-// diffDir returns the path to the session_diff storage directory.
-func diffDir(dbPath string) string {
-	return filepath.Join(filepath.Dir(dbPath), "storage", "session_diff")
+func (s *Store) diffDir() string {
+	return filepath.Join(s.storage.DataDir, "storage", "session_diff")
 }
 
 // loadSessionIDs returns a set of all session IDs currently in the database.
 func (s *Store) loadSessionIDs() (map[string]struct{}, error) {
-	rows, err := s.conn.Query(`SELECT id FROM session`)
+	table, err := s.sessionTable()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.conn.Query(`SELECT id FROM ` + table)
 	if err != nil {
 		return nil, fmt.Errorf("query session ids: %w", err)
 	}
@@ -154,12 +205,15 @@ func (s *Store) loadSessionIDs() (map[string]struct{}, error) {
 // OrphanStats returns the count and total byte size of session_diff JSON files
 // whose session no longer exists in the database.
 func (s *Store) OrphanStats() (count int, bytes int64, err error) {
+	if !s.storage.PruneSupported() {
+		return 0, 0, nil
+	}
 	ids, err := s.loadSessionIDs()
 	if err != nil {
 		return 0, 0, err
 	}
 
-	entries, err := os.ReadDir(diffDir(s.dbPath))
+	entries, err := os.ReadDir(s.diffDir())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, 0, nil
@@ -192,12 +246,15 @@ func (s *Store) OrphanStats() (count int, bytes int64, err error) {
 // PruneOrphans deletes session_diff JSON files whose session no longer exists
 // in the database. Returns the number of files deleted and bytes freed.
 func (s *Store) PruneOrphans() (count int, bytes int64, err error) {
+	if !s.storage.PruneSupported() {
+		return 0, 0, errors.New("pruning unavailable for custom/channel databases: legacy diff files are shared")
+	}
 	ids, err := s.loadSessionIDs()
 	if err != nil {
 		return 0, 0, err
 	}
 
-	dir := diffDir(s.dbPath)
+	dir := s.diffDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -240,8 +297,12 @@ func (s *Store) PruneOrphans() (count int, bytes int64, err error) {
 // SessionCount returns the total number of sessions in the database,
 // regardless of any filter applied to LoadSessions.
 func (s *Store) SessionCount() (int, error) {
+	table, err := s.sessionTable()
+	if err != nil {
+		return 0, err
+	}
 	var count int
-	if err := s.conn.QueryRow(`SELECT COUNT(*) FROM session`).Scan(&count); err != nil {
+	if err := s.conn.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count sessions: %w", err)
 	}
 	return count, nil
@@ -249,6 +310,13 @@ func (s *Store) SessionCount() (int, error) {
 
 // PeriodCost returns summed message-level costs in [startMs, endMs).
 func (s *Store) PeriodCost(startMs, endMs int64) (float64, error) {
+	table, err := s.sessionTable()
+	if err != nil {
+		return 0, err
+	}
+	if table == "session_v2" {
+		return s.v2PeriodCost(startMs, endMs)
+	}
 	q := `SELECT COALESCE(SUM(CAST(json_extract(m.data, '$.cost') AS REAL)), 0)
 		FROM message m
 		WHERE m.time_created >= ? AND m.time_created < ?`
@@ -256,6 +324,29 @@ func (s *Store) PeriodCost(startMs, endMs int64) (float64, error) {
 	var total float64
 	if err := s.conn.QueryRow(q, startMs, endMs).Scan(&total); err != nil {
 		return 0, fmt.Errorf("sum period cost: %w", err)
+	}
+	return total, nil
+}
+
+// V2 stores assistant costs in projections and compaction costs in usage
+// events. A fork copies old messages but must not count that spend twice.
+// Match OpenCode v2.1 packages/core/src/session/stats.ts.
+func (s *Store) v2PeriodCost(startMs, endMs int64) (float64, error) {
+	const q = `SELECT COALESCE(SUM(cost), 0) FROM (
+		SELECT CAST(json_extract(m.data, '$.cost') AS REAL) AS cost
+		FROM session_message m JOIN session_v2 s ON s.id = m.session_id
+		WHERE m.type = 'assistant' AND m.time_created >= ? AND m.time_created < ?
+			AND (s.fork_session_id IS NULL OR m.time_created >= s.time_created)
+		UNION ALL
+		SELECT CAST(json_extract(e.data, '$.cost') AS REAL) AS cost
+		FROM event e JOIN session_v2 s ON s.id = e.aggregate_id
+		WHERE e.type = 'session.usage.recorded.1'
+			AND json_extract(e.data, '$.source') = 'compaction'
+			AND e.created >= ? AND e.created < ?
+	)`
+	var total float64
+	if err := s.conn.QueryRow(q, startMs, endMs, startMs, endMs).Scan(&total); err != nil {
+		return 0, fmt.Errorf("sum V2 period cost: %w", err)
 	}
 	return total, nil
 }

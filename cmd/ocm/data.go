@@ -11,19 +11,25 @@ import (
 )
 
 func loadData(sessionsOnly bool, costPeriod ocm.CostPeriod) (ocm.Options, error) {
-	dbPath, err := db.DBPath()
+	storage, err := db.DiscoverStorage()
 	if err != nil {
 		return ocm.Options{}, fmt.Errorf("resolving db path: %w", err)
 	}
 
-	store, err := db.Open(dbPath)
+	store, err := db.OpenStorage(storage)
 	if err != nil {
-		return ocm.Options{}, fmt.Errorf("opening database %s: %w", dbPath, err)
+		return ocm.Options{}, fmt.Errorf("opening database %s: %w", storage.DBPath, err)
 	}
+	loaded := false
+	defer func() {
+		if !loaded {
+			_ = store.Close()
+		}
+	}()
 
 	sessions, err := store.LoadSessions(sessionsOnly)
 	if err != nil {
-		return ocm.Options{}, fmt.Errorf("loading sessions from %s: %w", dbPath, err)
+		return ocm.Options{}, fmt.Errorf("loading sessions from %s: %w", storage.DBPath, err)
 	}
 
 	totalCount, err := store.SessionCount()
@@ -50,6 +56,7 @@ func loadData(sessionsOnly bool, costPeriod ocm.CostPeriod) (ocm.Options, error)
 		}
 	}
 
+	loaded = true
 	return ocm.Options{
 		Sessions:    sessions,
 		TotalCount:  totalCount,

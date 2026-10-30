@@ -6,11 +6,27 @@ Interactive TUI for browsing and managing your OpenCode sessions. Lists all sess
 
 ## Requirements
 
-OpenCode installed and at least one session created. The database is read from:
+OpenCode V1 or V2 installed and at least one session created. OCM asks the
+`opencode` executable on your `PATH` for its storage locations using
+`opencode debug paths`. The usual database path is:
 
 ```
 ~/.local/share/opencode/opencode.db
 ```
+
+Custom `XDG_DATA_HOME`, `OPENCODE_DB`, and release-channel paths are discovered
+automatically. Relative `OPENCODE_DB` overrides resolve under OpenCode's data
+directory. In-memory databases and remote servers are not supported.
+
+OCM reads `session_v2` whenever that table exists, including migrated V1
+sessions. Older databases use `session`. Legacy rows left behind by V2 are not
+merged into the list, so deleted sessions stay deleted. Untitled V2 sessions
+appear as “Untitled session.” Browsing opens the database read-only and never
+runs migrations.
+
+Resume and delete use the same executable and database that OCM reads. With V2
+custom storage, those actions use `--standalone` to avoid connecting to a
+background service using another database.
 
 ## Install
 
@@ -47,6 +63,11 @@ ocm [OPTIONS]
 | Created   | Session creation time                                        |
 | Updated   | Last activity time                                           |
 
+`--cost-period` uses the active schema's recorded costs. V2 period totals include
+assistant messages and compaction usage, excluding history copied into forks.
+The period total includes subagent usage even with `--sessions`. Deleting a
+session removes its cost history from these totals.
+
 ## Keybindings
 
 | Key               | Action                                                                  |
@@ -67,4 +88,9 @@ ocm [OPTIONS]
 
 **Vacuum** runs SQLite's `VACUUM` command to compact the database file and reclaim space freed by deleted sessions. Only offered when there is at least 1 MB to reclaim.
 
-**Prune orphans** deletes `session_diff` JSON files in OpenCode's storage directory whose parent session no longer exists in the database — safe to run any time.
+**Prune orphans** deletes `storage/session_diff` JSON files in OpenCode's data
+directory whose session no longer exists in the active session table. Pruning
+is available only for the default `opencode.db` in that directory. It is
+disabled for custom and channel-specific database files because legacy diff
+files do not identify which database owns them. Missing legacy diff directories
+require no cleanup.

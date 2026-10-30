@@ -42,10 +42,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "ocm: %v\n", err)
 		os.Exit(1)
 	}
+	if opts.Store != nil {
+		defer func() { _ = opts.Store.Close() }()
+	}
 
 	if len(opts.Sessions) == 0 {
 		fmt.Println("No OpenCode sessions found.")
-		os.Exit(0)
+		return
 	}
 
 	m := ocm.New(opts, 0, 0)
