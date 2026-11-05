@@ -3,70 +3,18 @@
 package main
 
 import (
-	"fmt"
-	"time"
-
+	"github.com/kimoofey/tui/internal/terminal"
+	"github.com/kimoofey/tui/internal/ui"
 	"github.com/kimoofey/tui/ocm"
-	"github.com/kimoofey/tui/ocm/db"
+	"github.com/kimoofey/tui/ocm/service"
+	"github.com/kimoofey/tui/ocm/sources/opencode"
 )
 
-func loadData(sessionsOnly bool, costPeriod ocm.CostPeriod) (ocm.Options, error) {
-	storage, err := db.DiscoverStorage()
+func loadData(sessionsOnly bool, period service.CostPeriod) (ocm.Options, error) {
+	source, err := opencode.Discover()
 	if err != nil {
-		return ocm.Options{}, fmt.Errorf("resolving db path: %w", err)
+		return ocm.Options{}, err
 	}
-
-	store, err := db.OpenStorage(storage)
-	if err != nil {
-		return ocm.Options{}, fmt.Errorf("opening database %s: %w", storage.DBPath, err)
-	}
-	loaded := false
-	defer func() {
-		if !loaded {
-			_ = store.Close()
-		}
-	}()
-
-	sessions, err := store.LoadSessions(sessionsOnly)
-	if err != nil {
-		return ocm.Options{}, fmt.Errorf("loading sessions from %s: %w", storage.DBPath, err)
-	}
-
-	totalCount, err := store.SessionCount()
-	if err != nil {
-		return ocm.Options{}, fmt.Errorf("counting sessions: %w", err)
-	}
-
-	dbUsed, dbTotal, err := store.DBStats()
-	if err != nil {
-		return ocm.Options{}, fmt.Errorf("reading db stats: %w", err)
-	}
-
-	orphanCount, orphanBytes, _ := store.OrphanStats()
-
-	var periodCost float64
-	if costPeriod != "" {
-		start, end, err := ocm.CostPeriodBounds(costPeriod, time.Now())
-		if err != nil {
-			return ocm.Options{}, fmt.Errorf("computing period bounds (%s): %w", costPeriod, err)
-		}
-		periodCost, err = store.PeriodCost(start.UnixMilli(), end.UnixMilli())
-		if err != nil {
-			return ocm.Options{}, fmt.Errorf("reading period cost (%s): %w", costPeriod, err)
-		}
-	}
-
-	loaded = true
-	return ocm.Options{
-		Sessions:    sessions,
-		TotalCount:  totalCount,
-		DBUsed:      dbUsed,
-		DBTotal:     dbTotal,
-		CostPeriod:  costPeriod,
-		PeriodCost:  periodCost,
-		OrphanCount: orphanCount,
-		OrphanBytes: orphanBytes,
-		Store:       store,
-		RootOnly:    sessionsOnly,
-	}, nil
+	opts, err := loadSource(source, terminal.Launcher{Terminal: ui.ResolveTerminal("")}, service.LoadOptions{RootOnly: sessionsOnly, CostPeriod: period})
+	return opts, err
 }

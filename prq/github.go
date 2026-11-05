@@ -494,7 +494,6 @@ func fetchReviewNodes(ctx context.Context, cfg Config, user, stage, searchQuery,
 	return paginateSearch(ctx, cfg, stage, query, searchQuery, extraArgs)
 }
 
-// bucketFunc determines the Bucket for a given node.
 type bucketFunc func(node ghPRNode, user string) Bucket
 
 // convertReviewNodes filters and converts raw GraphQL nodes into PullRequests.

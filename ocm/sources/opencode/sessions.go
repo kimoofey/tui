@@ -1,6 +1,7 @@
-package db
+package opencode
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,8 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Session represents a single OpenCode session row.
-type Session struct {
+type sessionRow struct {
 	ID        string
 	Title     string
 	Directory string
@@ -25,18 +25,18 @@ type Session struct {
 
 type Store struct {
 	conn    *sql.DB
-	storage StorageContext
+	storage storageContext
 }
 
 func Open(dbPath string) (*Store, error) {
-	return OpenStorage(StorageContext{DBPath: dbPath, DataDir: filepath.Dir(dbPath)})
+	return openStorage(storageContext{DBPath: dbPath, DataDir: filepath.Dir(dbPath)})
 }
 
 func sqliteURI(path, mode string) string {
 	return (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=" + mode}).String()
 }
 
-func OpenStorage(storage StorageContext) (*Store, error) {
+func openStorage(storage storageContext) (*Store, error) {
 	if storage.DBPath == ":memory:" {
 		return nil, errors.New("in-memory storage is unsupported; OCM requires a database file")
 	}
@@ -62,7 +62,7 @@ func OpenStorage(storage StorageContext) (*Store, error) {
 	}
 	conn.SetMaxOpenConns(1)
 	store := &Store{conn: conn, storage: storage}
-	if _, err := store.sessionTable(); err != nil {
+	if _, err := store.sessionTableContext(context.Background()); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("read database %s: %w", storage.DBPath, err)
 	}
@@ -75,13 +75,11 @@ func (s *Store) Close() error {
 
 func (s *Store) Path() string { return s.storage.DBPath }
 
-func (s *Store) Storage() StorageContext { return s.storage }
-
 // sessionTable probes each time so a migration during OCM's lifetime is seen.
 // Never fall back from an empty or incompatible V2 table to frozen V1 rows.
-func (s *Store) sessionTable() (string, error) {
+func (s *Store) sessionTableContext(ctx context.Context) (string, error) {
 	var table string
-	err := s.conn.QueryRow(`SELECT name FROM sqlite_master
+	err := s.conn.QueryRowContext(ctx, `SELECT name FROM sqlite_master
 		WHERE type = 'table' AND name IN ('session_v2', 'session')
 		ORDER BY CASE name WHEN 'session_v2' THEN 0 ELSE 1 END LIMIT 1`).Scan(&table)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -91,7 +89,7 @@ func (s *Store) sessionTable() (string, error) {
 		return "", fmt.Errorf("detect session schema: %w", err)
 	}
 	// Table names come only from the fixed allowlist above.
-	rows, err := s.conn.Query(`SELECT id, title, directory, time_created, time_updated, cost, parent_id FROM ` + table + ` LIMIT 0`)
+	rows, err := s.conn.QueryContext(ctx, `SELECT id, title, directory, time_created, time_updated, cost, parent_id FROM `+table+` LIMIT 0`)
 	if err != nil {
 		return "", fmt.Errorf("unsupported OpenCode schema (%s): %w", table, err)
 	}
@@ -102,15 +100,15 @@ func (s *Store) sessionTable() (string, error) {
 // DBStats returns used and total byte sizes of the database file, derived
 // from SQLite page metrics. used = (page_count - freelist_count) * page_size,
 // total = page_count * page_size.
-func (s *Store) DBStats() (used, total int64, err error) {
+func (s *Store) dbStats(ctx context.Context) (used, total int64, err error) {
 	var pageSize, pageCount, freelistCount int64
-	if err := s.conn.QueryRow(`PRAGMA page_size`).Scan(&pageSize); err != nil {
+	if err := s.conn.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&pageSize); err != nil {
 		return 0, 0, fmt.Errorf("pragma page_size: %w", err)
 	}
-	if err := s.conn.QueryRow(`PRAGMA page_count`).Scan(&pageCount); err != nil {
+	if err := s.conn.QueryRowContext(ctx, `PRAGMA page_count`).Scan(&pageCount); err != nil {
 		return 0, 0, fmt.Errorf("pragma page_count: %w", err)
 	}
-	if err := s.conn.QueryRow(`PRAGMA freelist_count`).Scan(&freelistCount); err != nil {
+	if err := s.conn.QueryRowContext(ctx, `PRAGMA freelist_count`).Scan(&freelistCount); err != nil {
 		return 0, 0, fmt.Errorf("pragma freelist_count: %w", err)
 	}
 
@@ -121,7 +119,7 @@ func (s *Store) DBStats() (used, total int64, err error) {
 
 // VacuumDB runs VACUUM on the database to reclaim free pages, then returns
 // updated used and total byte sizes read from the shared connection.
-func (s *Store) VacuumDB() (used, total int64, err error) {
+func (s *Store) vacuumDB(ctx context.Context) (used, total int64, err error) {
 	rw, err := sql.Open("sqlite", sqliteURI(s.Path(), "rw"))
 	if err != nil {
 		return 0, 0, fmt.Errorf("open db for vacuum: %w", err)
@@ -132,17 +130,17 @@ func (s *Store) VacuumDB() (used, total int64, err error) {
 		}
 	}()
 
-	if _, err := rw.Exec(`VACUUM`); err != nil {
+	if _, err := rw.ExecContext(ctx, `VACUUM`); err != nil {
 		return 0, 0, fmt.Errorf("vacuum: %w", err)
 	}
 
-	return s.DBStats()
+	return s.dbStats(ctx)
 }
 
 // LoadSessions returns sessions sorted by last-updated descending.
 // If rootOnly is true, only top-level sessions (parent_id IS NULL) are returned.
-func (s *Store) LoadSessions(rootOnly bool) ([]Session, error) {
-	table, err := s.sessionTable()
+func (s *Store) loadSessions(ctx context.Context, rootOnly bool) ([]sessionRow, error) {
+	table, err := s.sessionTableContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -152,15 +150,15 @@ func (s *Store) LoadSessions(rootOnly bool) ([]Session, error) {
 	}
 	q += ` ORDER BY time_updated DESC, id DESC`
 
-	rows, err := s.conn.Query(q)
+	rows, err := s.conn.QueryContext(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("query sessions: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	var sessions []Session
+	var sessions []sessionRow
 	for rows.Next() {
-		var sess Session
+		var sess sessionRow
 		var createdMs, updatedMs int64
 
 		if err := rows.Scan(&sess.ID, &sess.Title, &sess.Directory, &createdMs, &updatedMs, &sess.Cost); err != nil {
@@ -180,12 +178,12 @@ func (s *Store) diffDir() string {
 }
 
 // loadSessionIDs returns a set of all session IDs currently in the database.
-func (s *Store) loadSessionIDs() (map[string]struct{}, error) {
-	table, err := s.sessionTable()
+func (s *Store) loadSessionIDsContext(ctx context.Context) (map[string]struct{}, error) {
+	table, err := s.sessionTableContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.conn.Query(`SELECT id FROM ` + table)
+	rows, err := s.conn.QueryContext(ctx, `SELECT id FROM `+table)
 	if err != nil {
 		return nil, fmt.Errorf("query session ids: %w", err)
 	}
@@ -204,11 +202,11 @@ func (s *Store) loadSessionIDs() (map[string]struct{}, error) {
 
 // OrphanStats returns the count and total byte size of session_diff JSON files
 // whose session no longer exists in the database.
-func (s *Store) OrphanStats() (count int, bytes int64, err error) {
+func (s *Store) orphanStats(ctx context.Context) (count int, bytes int64, err error) {
 	if !s.storage.PruneSupported() {
 		return 0, 0, nil
 	}
-	ids, err := s.loadSessionIDs()
+	ids, err := s.loadSessionIDsContext(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -222,6 +220,9 @@ func (s *Store) OrphanStats() (count int, bytes int64, err error) {
 	}
 
 	for _, e := range entries {
+		if err := ctx.Err(); err != nil {
+			return count, bytes, err
+		}
 		if e.IsDir() {
 			continue
 		}
@@ -245,11 +246,11 @@ func (s *Store) OrphanStats() (count int, bytes int64, err error) {
 
 // PruneOrphans deletes session_diff JSON files whose session no longer exists
 // in the database. Returns the number of files deleted and bytes freed.
-func (s *Store) PruneOrphans() (count int, bytes int64, err error) {
+func (s *Store) pruneOrphans(ctx context.Context) (count int, bytes int64, err error) {
 	if !s.storage.PruneSupported() {
 		return 0, 0, errors.New("pruning unavailable for custom/channel databases: legacy diff files are shared")
 	}
-	ids, err := s.loadSessionIDs()
+	ids, err := s.loadSessionIDsContext(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -265,6 +266,9 @@ func (s *Store) PruneOrphans() (count int, bytes int64, err error) {
 
 	var removeErrs []string
 	for _, e := range entries {
+		if err := ctx.Err(); err != nil {
+			return count, bytes, err
+		}
 		if e.IsDir() {
 			continue
 		}
@@ -296,33 +300,33 @@ func (s *Store) PruneOrphans() (count int, bytes int64, err error) {
 
 // SessionCount returns the total number of sessions in the database,
 // regardless of any filter applied to LoadSessions.
-func (s *Store) SessionCount() (int, error) {
-	table, err := s.sessionTable()
+func (s *Store) sessionCount(ctx context.Context) (int, error) {
+	table, err := s.sessionTableContext(ctx)
 	if err != nil {
 		return 0, err
 	}
 	var count int
-	if err := s.conn.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil {
+	if err := s.conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count sessions: %w", err)
 	}
 	return count, nil
 }
 
 // PeriodCost returns summed message-level costs in [startMs, endMs).
-func (s *Store) PeriodCost(startMs, endMs int64) (float64, error) {
-	table, err := s.sessionTable()
+func (s *Store) periodCost(ctx context.Context, startMs, endMs int64) (float64, error) {
+	table, err := s.sessionTableContext(ctx)
 	if err != nil {
 		return 0, err
 	}
 	if table == "session_v2" {
-		return s.v2PeriodCost(startMs, endMs)
+		return s.v2PeriodCostContext(ctx, startMs, endMs)
 	}
 	q := `SELECT COALESCE(SUM(CAST(json_extract(m.data, '$.cost') AS REAL)), 0)
 		FROM message m
 		WHERE m.time_created >= ? AND m.time_created < ?`
 
 	var total float64
-	if err := s.conn.QueryRow(q, startMs, endMs).Scan(&total); err != nil {
+	if err := s.conn.QueryRowContext(ctx, q, startMs, endMs).Scan(&total); err != nil {
 		return 0, fmt.Errorf("sum period cost: %w", err)
 	}
 	return total, nil
@@ -331,7 +335,7 @@ func (s *Store) PeriodCost(startMs, endMs int64) (float64, error) {
 // V2 stores assistant costs in projections and compaction costs in usage
 // events. A fork copies old messages but must not count that spend twice.
 // Match OpenCode v2.1 packages/core/src/session/stats.ts.
-func (s *Store) v2PeriodCost(startMs, endMs int64) (float64, error) {
+func (s *Store) v2PeriodCostContext(ctx context.Context, startMs, endMs int64) (float64, error) {
 	const q = `SELECT COALESCE(SUM(cost), 0) FROM (
 		SELECT CAST(json_extract(m.data, '$.cost') AS REAL) AS cost
 		FROM session_message m JOIN session_v2 s ON s.id = m.session_id
@@ -345,7 +349,7 @@ func (s *Store) v2PeriodCost(startMs, endMs int64) (float64, error) {
 			AND e.created >= ? AND e.created < ?
 	)`
 	var total float64
-	if err := s.conn.QueryRow(q, startMs, endMs, startMs, endMs).Scan(&total); err != nil {
+	if err := s.conn.QueryRowContext(ctx, q, startMs, endMs, startMs, endMs).Scan(&total); err != nil {
 		return 0, fmt.Errorf("sum V2 period cost: %w", err)
 	}
 	return total, nil

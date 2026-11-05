@@ -9,12 +9,11 @@ import (
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-
 	"github.com/kimoofey/tui/internal/ui"
-	"github.com/kimoofey/tui/ocm/db"
+	"github.com/kimoofey/tui/ocm/service"
+	"github.com/kimoofey/tui/ocm/session"
 )
 
-// keyMap defines all keybindings and their short/full help text.
 type keyMap struct {
 	Up     key.Binding
 	Down   key.Binding
@@ -43,7 +42,6 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	}
 }
 
-// defaultKeys is the keybinding set used across the app.
 var defaultKeys = keyMap{
 	Up:     key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
 	Down:   key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
@@ -101,7 +99,6 @@ var (
 			Foreground(ui.ColorError)
 )
 
-// vacuumedMsg is sent back after a VACUUM completes.
 type vacuumedMsg struct {
 	dbUsed      int64
 	dbTotal     int64
@@ -109,44 +106,35 @@ type vacuumedMsg struct {
 	err         error
 }
 
-// prunedMsg is sent back after orphaned session-diff files are deleted.
 type prunedMsg struct {
 	count int
 	bytes int64
 	err   error
 }
 
-// openedMsg is sent back to the model after attempting to open a session.
 type openedMsg struct {
-	sessionID string
+	sessionID session.Ref
 	err       error
 }
 
-// deletedMsg is sent back to the model after attempting to delete a session.
 type deletedMsg struct {
-	sessionID string
-	data      *reloadedMsg // nil for mock command acknowledgements
-	err       error
+	sessionID       session.Ref
+	acknowledgement bool
+	data            *reloadedMsg // nil for mock command acknowledgements
+	err             error
 }
 
-// bulkDeletedMsg is sent back after a bulk delete completes.
 type bulkDeletedMsg struct {
-	count int
-	ids   []string
-	data  *reloadedMsg // nil for mock command acknowledgements
-	err   error
+	count           int
+	ids             []session.Ref
+	acknowledgement bool
+	data            *reloadedMsg // nil for mock command acknowledgements
+	err             error
 }
 
-// reloadedMsg is sent back after a full data reload completes.
 type reloadedMsg struct {
-	sessions    []db.Session
-	newTotal    int
-	dbUsed      int64
-	dbTotal     int64
-	orphanCount int
-	orphanBytes int64
-	periodCost  float64
-	err         error
+	snapshot *service.Snapshot
+	err      error
 }
 
 // deleteState tracks the two-press delete confirmation flow.
@@ -160,14 +148,14 @@ const (
 // Model is the bubbletea model for the session browser.
 type Model struct {
 	table           table.Model
-	sessions        []db.Session
-	selected        map[string]bool
+	sessions        []session.Session
+	selected        map[session.Ref]bool
 	totalSessions   int
 	dbUsed          int64
 	dbTotal         int64
-	costPeriod      CostPeriod
+	costPeriod      service.CostPeriod
 	periodCost      float64
-	store           *db.Store
+	app             *service.Service
 	rootOnly        bool
 	homeDir         string
 	width           int
@@ -187,6 +175,9 @@ type Model struct {
 	pruning         bool
 	help            help.Model
 	keys            keyMap
+	capabilities    service.Capabilities
+	metricsKnown    bool
+	diagnostics     []error
 }
 
 // currentOverhead returns the total terminal rows consumed by chrome (title,
@@ -207,21 +198,25 @@ func (m Model) currentOverhead() int {
 }
 
 type Options struct {
-	Sessions    []db.Session
-	TotalCount  int
-	DBUsed      int64
-	DBTotal     int64
-	CostPeriod  CostPeriod
-	PeriodCost  float64
-	OrphanCount int
-	OrphanBytes int64
-	Store       *db.Store
-	RootOnly    bool
+	Sessions     []session.Session
+	TotalCount   int
+	DBUsed       int64
+	DBTotal      int64
+	CostPeriod   service.CostPeriod
+	PeriodCost   float64
+	OrphanCount  int
+	OrphanBytes  int64
+	Service      *service.Service
+	RootOnly     bool
+	Capabilities service.Capabilities
+	MetricsKnown bool
+	Diagnostics  []error
+	Close        func() error
 }
 
 // New creates a Model populated with the given sessions.
 func New(opts Options, termWidth, termHeight int) Model {
-	selected := make(map[string]bool)
+	selected := make(map[session.Ref]bool)
 	homeDir, _ := os.UserHomeDir()
 	cols, rows := buildTable(opts.Sessions, selected, termWidth-borderWidth, homeDir)
 
@@ -251,7 +246,7 @@ func New(opts Options, termWidth, termHeight int) Model {
 	h.Styles = ui.HelpStyles()
 	h.SetWidth(termWidth - 2)
 
-	return Model{
+	m := Model{
 		table:         t,
 		sessions:      opts.Sessions,
 		selected:      selected,
@@ -262,20 +257,28 @@ func New(opts Options, termWidth, termHeight int) Model {
 		periodCost:    opts.PeriodCost,
 		orphanCount:   opts.OrphanCount,
 		orphanBytes:   opts.OrphanBytes,
-		store:         opts.Store,
+		app:           opts.Service,
 		rootOnly:      opts.RootOnly,
 		homeDir:       homeDir,
 		width:         termWidth,
 		height:        termHeight,
 		help:          h,
 		keys:          defaultKeys,
+		capabilities:  opts.Capabilities,
+		metricsKnown:  opts.MetricsKnown,
+		diagnostics:   opts.Diagnostics,
 	}
+	m.updateKeys()
+	if len(m.diagnostics) > 0 {
+		m.status = m.diagnostics[0].Error()
+	}
+	return m
 }
 
 // buildTable converts sessions into bubbles/table columns + rows.
 // The directory and title columns share whatever space is left after the fixed
 // columns, with directory getting dirFrac of that flexible budget.
-func buildTable(sessions []db.Session, selected map[string]bool, termWidth int, homeDir string) ([]table.Column, []table.Row) {
+func buildTable(sessions []session.Session, selected map[session.Ref]bool, termWidth int, homeDir string) ([]table.Column, []table.Row) {
 	fixedUsed := colWidthMarker + colWidthCost + colWidthDate*2 + tableCellPad
 	flex := max(termWidth-fixedUsed, minDirWidth+minTitleWidth)
 	dirWidth := max(int(float64(flex)*dirFrac), minDirWidth)
@@ -293,14 +296,14 @@ func buildTable(sessions []db.Session, selected map[string]bool, termWidth int, 
 	rows := make([]table.Row, len(sessions))
 	for i, s := range sessions {
 		marker := " "
-		if selected[s.ID] {
+		if selected[s.Ref] {
 			marker = "●"
 		}
 		rows[i] = table.Row{
 			marker,
 			ui.Truncate(shortenHome(s.Directory, homeDir), dirWidth),
 			s.Title,
-			formatCost(s.Cost),
+			formatRecordedCost(s.Cost),
 			formatDate(s.Created),
 			formatDate(s.Updated),
 		}
@@ -351,17 +354,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "d" {
 				m.deletePhase = deleteNone
 				if len(m.selected) > 0 {
-					ids := make([]string, 0, len(m.selected))
+					ids := make([]session.Ref, 0, len(m.selected))
 					for id := range m.selected {
 						ids = append(ids, id)
 					}
 					m.bulkDeleting = true
 					m.bulkDeleteCount = len(ids)
-					return m, bulkDeleteSessions(ids, m.store, m.rootOnly, m.costPeriod)
+					return m, bulkDeleteSessions(ids, m.app, m.rootOnly, m.costPeriod)
 				}
 				m.bulkDeleting = true
 				m.bulkDeleteCount = 1
-				return m, deleteSession(m.sessions[m.deleteTarget].ID, m.store, m.rootOnly, m.costPeriod)
+				return m, deleteSession(m.sessions[m.deleteTarget].Ref, m.app, m.rootOnly, m.costPeriod)
 			}
 			m.deletePhase = deleteNone
 			return m, nil
@@ -372,7 +375,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "v" {
 				m.vacuumPhase = false
 				m.vacuuming = true
-				return m, vacuumDB(m.store, m.dbTotal)
+				return m, vacuumDB(m.app, m.dbTotal)
 			}
 			m.vacuumPhase = false
 			return m, nil
@@ -383,7 +386,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "p" {
 				m.prunePhase = false
 				m.pruning = true
-				return m, pruneOrphans(m.store)
+				return m, pruneOrphans(m.app)
 			}
 			m.prunePhase = false
 			return m, nil
@@ -399,21 +402,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if len(m.selected) > 0 {
-				m.selected = make(map[string]bool)
+				m.selected = make(map[session.Ref]bool)
 				m.rebuildRows()
 			}
 			return m, nil
 		case "enter":
-			if len(m.sessions) == 0 {
+			if !m.capabilities.Resume || len(m.sessions) == 0 {
 				break
 			}
 			idx := m.table.Cursor()
 			if idx < 0 || idx >= len(m.sessions) {
 				break
 			}
-			sid := m.sessions[idx].ID
-			return m, openSession(sid, m.store)
+			sid := m.sessions[idx].Ref
+			return m, openSession(sid, m.app)
 		case "d":
+			if !m.capabilities.Delete {
+				return m, nil
+			}
 			if len(m.sessions) == 0 {
 				break
 			}
@@ -431,8 +437,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // don't forward to table
 		case "r":
 			m.reloading = true
-			return m, reloadData(m.store, m.rootOnly, m.costPeriod)
+			return m, reloadData(m.app, m.rootOnly, m.costPeriod)
 		case "v":
+			if !m.capabilities.Vacuum.Available {
+				return m, nil
+			}
 			if m.dbTotal-m.dbUsed < minReclaimableBytes {
 				m.status = "nothing to vacuum"
 				m.statusOK = false
@@ -441,8 +450,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.vacuumPhase = true
 			return m, nil
 		case "p":
-			if m.store != nil && !m.store.Storage().PruneSupported() {
-				m.status = "pruning unavailable for custom/channel databases: legacy diff files are shared"
+			if !m.capabilities.Orphans.Available {
+				m.status = "pruning unavailable: " + m.capabilities.Orphans.Reason
 				m.statusOK = false
 				return m, nil
 			}
@@ -465,7 +474,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.sessions) > 0 {
 				idx := m.table.Cursor()
 				if idx >= 0 && idx < len(m.sessions) {
-					id := m.sessions[idx].ID
+					id := m.sessions[idx].Ref
 					if m.selected[id] {
 						delete(m.selected, id)
 					} else {
@@ -479,24 +488,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case deletedMsg:
 		m.bulkDeleting = false
-		if msg.data != nil && msg.data.err == nil {
+		if msg.data != nil && msg.data.err == nil && msg.data.snapshot != nil {
 			m.applyData(*msg.data)
-		} else if msg.data == nil && msg.err == nil {
-			m.removeAcknowledgedSessions([]string{msg.sessionID})
+		} else if msg.acknowledgement && msg.data == nil && msg.err == nil {
+			m.removeAcknowledgedSessions([]session.Ref{msg.sessionID})
 		}
 		if msg.err != nil {
 			m.status = fmt.Sprintf("error deleting session: %s", msg.err)
 			m.statusOK = false
 		} else {
-			m.status = fmt.Sprintf("deleted %s", msg.sessionID)
+			m.status = fmt.Sprintf("deleted %s", msg.sessionID.ID)
 			m.statusOK = true
 		}
 
 	case bulkDeletedMsg:
 		m.bulkDeleting = false
-		if msg.data != nil && msg.data.err == nil {
+		if msg.data != nil && msg.data.err == nil && msg.data.snapshot != nil {
 			m.applyData(*msg.data)
-		} else if msg.data == nil && msg.err == nil {
+		} else if msg.acknowledgement && msg.data == nil && msg.err == nil {
 			m.removeAcknowledgedSessions(msg.ids)
 		}
 		if msg.err != nil {
@@ -513,21 +522,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case reloadedMsg:
 		m.reloading = false
+		if msg.err == nil && msg.snapshot == nil {
+			msg.err = fmt.Errorf("reload returned no snapshot")
+		}
 		if msg.err != nil {
 			m.status = fmt.Sprintf("reload failed: %s", msg.err)
 			m.statusOK = false
 		} else {
 			m.applyData(msg)
 			m.status = "reloaded"
+			if len(m.diagnostics) > 0 {
+				m.status = m.diagnostics[0].Error()
+			}
 			m.statusOK = true
 		}
 
 	case openedMsg:
 		if msg.err != nil {
-			m.status = fmt.Sprintf("error opening %s: %s", msg.sessionID, msg.err)
+			m.status = fmt.Sprintf("error opening %s: %s", msg.sessionID.ID, msg.err)
 			m.statusOK = false
 		} else {
-			m.status = fmt.Sprintf("opened %s in new tab", msg.sessionID)
+			m.status = fmt.Sprintf("opened %s in new tab", msg.sessionID.ID)
 			m.statusOK = true
 		}
 
@@ -563,21 +578,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // Mock commands acknowledge deletion without a database snapshot. Keep all
 // unrelated statistics while removing only the acknowledged rows.
-func (m *Model) removeAcknowledgedSessions(ids []string) {
-	removed := make(map[string]bool, len(ids))
+func (m *Model) removeAcknowledgedSessions(ids []session.Ref) {
+	removed := make(map[session.Ref]bool, len(ids))
 	for _, id := range ids {
 		removed[id] = true
 	}
-	remaining := make([]db.Session, 0, len(m.sessions))
+	remaining := make([]session.Session, 0, len(m.sessions))
 	for _, session := range m.sessions {
-		if removed[session.ID] {
+		if removed[session.Ref] {
 			m.totalSessions--
 		} else {
 			remaining = append(remaining, session)
 		}
 	}
 	m.sessions = remaining
-	m.selected = make(map[string]bool)
+	m.selected = make(map[session.Ref]bool)
 	m.deletePhase = deleteNone
 	m.rebuildRows()
 	if m.table.Cursor() >= len(m.sessions) {
@@ -586,14 +601,26 @@ func (m *Model) removeAcknowledgedSessions(ids []string) {
 }
 
 func (m *Model) applyData(msg reloadedMsg) {
-	m.sessions = msg.sessions
-	m.totalSessions = msg.newTotal
-	m.dbUsed = msg.dbUsed
-	m.dbTotal = msg.dbTotal
-	m.orphanCount = msg.orphanCount
-	m.orphanBytes = msg.orphanBytes
-	m.periodCost = msg.periodCost
-	m.selected = make(map[string]bool)
+	snap := msg.snapshot
+	m.sessions = snap.Sessions
+	m.totalSessions = snap.TotalCount
+	m.dbUsed, m.dbTotal = 0, 0
+	m.metricsKnown = snap.Metrics != nil
+	if snap.Metrics != nil {
+		m.dbUsed, m.dbTotal = snap.Metrics.Used, snap.Metrics.Total
+	}
+	m.orphanCount, m.orphanBytes = 0, 0
+	if snap.Orphans != nil {
+		m.orphanCount, m.orphanBytes = snap.Orphans.Count, snap.Orphans.Bytes
+	}
+	m.periodCost = 0
+	if snap.PeriodCost != nil {
+		m.periodCost = snap.PeriodCost.Amount
+	}
+	m.capabilities = snap.Capabilities
+	m.updateKeys()
+	m.diagnostics = snap.Diagnostics
+	m.selected = make(map[session.Ref]bool)
 	m.deletePhase = deleteNone
 	m.rebuildRows()
 	if len(m.sessions) == 0 {
@@ -601,6 +628,13 @@ func (m *Model) applyData(msg reloadedMsg) {
 	} else if m.table.Cursor() >= len(m.sessions) {
 		m.table.SetCursor(len(m.sessions) - 1)
 	}
+}
+
+func (m *Model) updateKeys() {
+	m.keys.Enter.SetEnabled(m.capabilities.Resume)
+	m.keys.Delete.SetEnabled(m.capabilities.Delete)
+	m.keys.Vacuum.SetEnabled(m.capabilities.Vacuum.Available)
+	m.keys.Prune.SetEnabled(m.capabilities.Orphans.Available)
 }
 
 func (m Model) View() tea.View {
@@ -668,13 +702,11 @@ func (m Model) View() tea.View {
 	return v
 }
 
-// rebuildRows regenerates table rows from current session + selection state.
 func (m *Model) rebuildRows() {
 	_, rows := buildTable(m.sessions, m.selected, m.width-borderWidth, m.homeDir)
 	m.table.SetRows(rows)
 }
 
-// renderTitleBar renders the top bar: "ocm" on the left, session count + db size on the right.
 func (m Model) renderTitleBar() string {
 	left := "ocm"
 
@@ -701,7 +733,10 @@ func (m Model) renderTitleBar() string {
 	} else {
 		sizeLabel = usedStr + " / " + totalStr
 	}
-	right := sessionLabel + "  ·  " + sizeLabel
+	right := sessionLabel
+	if m.metricsKnown {
+		right += "  ·  " + sizeLabel
+	}
 	if m.costPeriod != "" {
 		right += "  ·  " + string(m.costPeriod) + ": " + fmt.Sprintf("$%.2f", m.periodCost)
 	}

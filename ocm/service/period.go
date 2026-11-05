@@ -1,4 +1,4 @@
-package ocm
+package service
 
 import (
 	"fmt"
@@ -30,7 +30,6 @@ func CostPeriodBounds(period CostPeriod, now time.Time) (time.Time, time.Time, e
 
 	switch period {
 	case CostPeriodWeek:
-		// Monday-start week in local time.
 		daysSinceMonday := (int(n.Weekday()) + 6) % 7
 		start := time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -daysSinceMonday)
 		return start, n, nil

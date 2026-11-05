@@ -82,7 +82,7 @@ func GlobalConfigPath() string {
 }
 
 // LoadConfig builds a Config by layering: defaults → global file.
-// Missing file is silently skipped. Returns an error only on malformed YAML.
+// A missing file is silently skipped; other read and YAML errors are returned.
 func LoadConfig() (Config, error) {
 	cfg := defaultConfig()
 	if err := mergeYAML(&cfg, GlobalConfigPath()); err != nil {
@@ -110,7 +110,7 @@ func mergeYAML(cfg *Config, path string) error {
 }
 
 // ScaffoldConfig writes the embedded config.example.yaml to the global config
-// path. Returns an error if the destination already exists.
+// path. If the destination already exists, it is left unchanged.
 func ScaffoldConfig() error {
 	dest := GlobalConfigPath()
 	if _, err := os.Stat(dest); err == nil {

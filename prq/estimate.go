@@ -8,7 +8,6 @@ import (
 )
 
 func EstimateReviewTime(author, title string, additions, deletions, changedFiles int, files []PRFile, filesTruncated bool, buckets []int) string {
-	// Bot/dependency short-circuit
 	if author == "dependabot[bot]" || author == "renovate[bot]" {
 		return "~1m"
 	}
