@@ -3,13 +3,17 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/kimoofey/tui/ocm"
+	"github.com/kimoofey/tui/internal/terminal"
+	"github.com/kimoofey/tui/ocm/service"
+	db "github.com/kimoofey/tui/ocm/sources/opencode"
 )
 
 func TestLoadData_V2CustomStorage(t *testing.T) {
@@ -50,19 +54,34 @@ printf 'data       %s\ndb         %s\n' "$OCM_TEST_DATA" "$OCM_TEST_DB"
 	t.Setenv("PATH", bin)
 	t.Setenv("OCM_TEST_DATA", dataDir)
 	t.Setenv("OCM_TEST_DB", path)
-	opts, err := loadData(true, ocm.CostPeriod("year"))
+	opts, err := loadData(true, service.CostPeriod("year"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = opts.Store.Close() }()
+	defer func() { _ = opts.Close() }()
 	if opts.TotalCount != 2 || len(opts.Sessions) != 1 || opts.Sessions[0].ID != "root" || opts.Sessions[0].Title != "Untitled session" {
 		t.Fatalf("incorrect startup rows: count=%d, sessions=%v", opts.TotalCount, opts.Sessions)
 	}
 	if opts.PeriodCost != 5 || !opts.RootOnly || opts.DBTotal == 0 {
 		t.Fatalf("incorrect startup stats: cost=%v, rootOnly=%v, bytes=%d", opts.PeriodCost, opts.RootOnly, opts.DBTotal)
 	}
-	storage := opts.Store.Storage()
-	if storage.DBPath != path || storage.DataDir != dataDir || storage.Executable != executable || !storage.V2CLI || storage.PruneSupported() {
-		t.Fatalf("storage context was not preserved: %+v", storage)
+	// Capture the actual same-source launch spec without starting a terminal.
+	capture := &captureLauncher{}
+	source, err := db.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = source.Close() }()
+	app := service.New(source, capture, nil)
+	if err := app.Resume(context.Background(), opts.Sessions[0].Ref); err != nil {
+		t.Fatal(err)
+	}
+	spec := capture.spec
+	if spec.Executable != executable || spec.Env["OPENCODE_DB"] != path || spec.Env["XDG_DATA_HOME"] != filepath.Dir(dataDir) || strings.Join(spec.Args, " ") != "-s root --standalone" || opts.Capabilities.Orphans.Available {
+		t.Fatalf("same-source routing: %+v", spec)
 	}
 }
+
+type captureLauncher struct{ spec terminal.Command }
+
+func (c *captureLauncher) Launch(spec terminal.Command) error { c.spec = spec; return nil }

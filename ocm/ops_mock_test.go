@@ -5,15 +5,15 @@ package ocm
 import (
 	"testing"
 
-	"github.com/kimoofey/tui/ocm/db"
+	"github.com/kimoofey/tui/ocm/session"
 )
 
 func TestMockDeletePreservesRemainingRowsAndStats(t *testing.T) {
 	model := New(Options{
-		Sessions: []db.Session{{ID: "one"}, {ID: "two"}}, TotalCount: 2,
+		Sessions: []session.Session{{Ref: session.Ref{ID: "one"}}, {Ref: session.Ref{ID: "two"}}}, TotalCount: 2,
 		DBUsed: 100, DBTotal: 200, PeriodCost: 3,
 	}, 100, 30)
-	updated, _ := model.Update(deleteSession("one", nil, false, "")())
+	updated, _ := model.Update(deleteSession(session.Ref{ID: "one"}, nil, false, "")())
 	got := updated.(Model)
 	if len(got.sessions) != 1 || got.sessions[0].ID != "two" || got.totalSessions != 1 || got.dbTotal != 200 || got.periodCost != 3 {
 		t.Fatalf("mock deletion changed remaining data: sessions=%v, total=%d, db=%d, cost=%v", got.sessions, got.totalSessions, got.dbTotal, got.periodCost)
@@ -32,13 +32,13 @@ func TestMockBulkDeletePreservesUnrelatedData(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			model := New(Options{
-				Sessions: []db.Session{{ID: "one"}, {ID: "two"}, {ID: "three"}}, TotalCount: 3,
+				Sessions: []session.Session{{Ref: session.Ref{ID: "one"}}, {Ref: session.Ref{ID: "two"}}, {Ref: session.Ref{ID: "three"}}}, TotalCount: 3,
 				DBUsed: 100, DBTotal: 200, PeriodCost: 3, OrphanCount: 4, OrphanBytes: 500,
 			}, 100, 30)
 			model.table.SetCursor(2)
 			model.bulkDeleting = true
-			model.selected["one"] = true
-			updated, _ := model.Update(bulkDeleteSessions(tt.ids, nil, false, "")())
+			model.selected[session.Ref{ID: "one"}] = true
+			updated, _ := model.Update(bulkDeleteSessions(refs(tt.ids), nil, false, "")())
 			got := updated.(Model)
 			if len(got.sessions) != len(tt.want) || got.totalSessions != len(tt.want) {
 				t.Fatalf("remaining sessions=%v, count=%d, want=%v", got.sessions, got.totalSessions, tt.want)
@@ -56,4 +56,12 @@ func TestMockBulkDeletePreservesUnrelatedData(t *testing.T) {
 			}
 		})
 	}
+}
+
+func refs(ids []string) []session.Ref {
+	result := make([]session.Ref, len(ids))
+	for i, id := range ids {
+		result[i] = session.Ref{ID: id}
+	}
+	return result
 }

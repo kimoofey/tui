@@ -4,54 +4,51 @@ package ocm
 
 import (
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/kimoofey/tui/ocm/db"
+	"github.com/kimoofey/tui/ocm/service"
+	"github.com/kimoofey/tui/ocm/session"
 )
 
-func bulkDeleteSessions(ids []string, _ *db.Store, _ bool, _ CostPeriod) tea.Cmd {
+func bulkDeleteSessions(ids []session.Ref, _ *service.Service, _ bool, _ service.CostPeriod) tea.Cmd {
 	return func() tea.Msg {
-		return bulkDeletedMsg{count: len(ids), ids: append([]string(nil), ids...)}
+		return bulkDeletedMsg{acknowledgement: true, count: len(ids), ids: append([]session.Ref(nil), ids...)}
 	}
 }
 
-func deleteSession(sessionID string, _ *db.Store, _ bool, _ CostPeriod) tea.Cmd {
+func deleteSession(sessionID session.Ref, _ *service.Service, _ bool, _ service.CostPeriod) tea.Cmd {
 	return func() tea.Msg {
-		return deletedMsg{sessionID: sessionID}
+		return deletedMsg{acknowledgement: true, sessionID: sessionID}
 	}
 }
 
-func openSession(sessionID string, _ *db.Store) tea.Cmd {
+func openSession(sessionID session.Ref, _ *service.Service) tea.Cmd {
 	return func() tea.Msg {
 		return openedMsg{sessionID: sessionID}
 	}
 }
 
-func pruneOrphans(_ *db.Store) tea.Cmd {
+func pruneOrphans(_ *service.Service) tea.Cmd {
 	return func() tea.Msg {
 		return prunedMsg{count: 3, bytes: 81_920}
 	}
 }
 
-func vacuumDB(_ *db.Store, beforeTotal int64) tea.Cmd {
+func vacuumDB(_ *service.Service, beforeTotal int64) tea.Cmd {
 	return func() tea.Msg {
 		compacted := beforeTotal / 2
 		return vacuumedMsg{dbUsed: compacted, dbTotal: compacted, beforeTotal: beforeTotal}
 	}
 }
 
-func reloadData(_ *db.Store, _ bool, costPeriod CostPeriod) tea.Cmd {
+func reloadData(_ *service.Service, _ bool, costPeriod service.CostPeriod) tea.Cmd {
 	return func() tea.Msg {
-		msg := reloadedMsg{
-			sessions:    []db.Session{},
-			newTotal:    0,
-			dbUsed:      2_621_440,
-			dbTotal:     4_194_304,
-			orphanCount: 3,
-			orphanBytes: 81_920,
-		}
+		snap := &service.Snapshot{Metrics: &session.Metrics{Used: 2_621_440, Total: 4_194_304}, Orphans: &session.Orphans{Count: 3, Bytes: 81_920}, Capabilities: mockCapabilities()}
 		if costPeriod != "" {
-			msg.periodCost = 2.51
+			snap.PeriodCost = &session.RecordedCost{Amount: 2.51, Currency: "USD", Provenance: "source-recorded"}
 		}
-		return msg
+		return reloadedMsg{snapshot: snap}
 	}
+}
+
+func mockCapabilities() service.Capabilities {
+	return service.Capabilities{Resume: true, Delete: true, RootFilter: true, PeriodCost: true, Metrics: true, Vacuum: session.Availability{Available: true}, Orphans: session.Availability{Available: true}}
 }
