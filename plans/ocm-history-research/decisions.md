@@ -103,16 +103,14 @@ V1 fork handling; do not defer essential source-field validation or safe retenti
 | Identity, ordering, deletion recovery, schema and policy contracts | Still required before production collection. |
 | Real-data and scale measurement | Real snapshot and expanded V1/V2 pipeline/heap/RSS/controlled-contention measurements delivered. Source-wide reader target fails; bounded collection and remaining performance gates stay open. |
 | Numeric budgets | Measure and record; no approval inferred from tiny fixture tests. |
-| PRQ mock compilation | Fix separately; do not silently waive the repository verification gate. |
+| PRQ mock compilation | Fixed in fcf4525; normal and mock builds both pass. |
 | Steps 3–5 | Remain gated on their documented prerequisites. |
 
-Recommended separate PRQ maintenance: `prq/filter_test.go` and
-`prq/wait_time_test.go` use definitions from `prq/github.go` (`//go:build !mock`)
-but lack matching test constraints. Read root and `prq/AGENTS.md`, align those
-constraints, preserve normal test coverage, and run `go vet ./...`,
-`go test -race ./...`, `make build`, `go test -tags mock ./...`, and
-`go build -tags mock ./cmd/prq ./cmd/ocm` with Go 1.25.0. This is a recommendation,
-not an implemented fix or an expansion of the history research code scope.
+PRQ mock maintenance was completed in fcf4525: `//go:build !mock` added to
+`prq/filter_test.go` and `prq/wait_time_test.go`, mock build infrastructure
+created in `cmd/prq/deps*.go`, and mock tests added. Both normal and mock builds
+pass (`go test -tags mock ./prq/... ./cmd/prq/...`, `go vet ./...`,
+`go test -race ./...`, `make build`, `go build -tags mock ./cmd/prq ./cmd/ocm`).
 
 ## Accepted: available real sample plus generated scale — 2026-11-06
 

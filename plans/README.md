@@ -140,12 +140,11 @@ deletion trace and synthetic benchmarks. The real-database path is now resolved;
 remaining measurements and contracts still gate step 2 completion. Steps 3–5
 remain gated.
 
-Fix the existing PRQ mock build-constraint mismatch separately from history.
-`prq/filter_test.go` and `prq/wait_time_test.go` reference definitions in
-`prq/github.go`, which is excluded by `//go:build !mock`; the tests currently lack
-that constraint. Recommended fix: match those tests' constraints to the code they
-test, preserve normal-build coverage, and rerun normal/mock repository gates.
-This documentation update neither implements nor waives that failed gate.
+PRQ mock build-constraint mismatch has been resolved (fcf4525). The
+`//go:build !mock` constraint was added to `prq/filter_test.go` and
+`prq/wait_time_test.go`, and mock build infrastructure was created in
+`cmd/prq/deps*.go` with corresponding tests. Both normal and mock builds
+pass (`go test -tags mock ./prq/... ./cmd/prq/...`).
 
 ## Verification common to every code milestone
 
