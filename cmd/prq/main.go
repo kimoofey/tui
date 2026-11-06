@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 
@@ -125,7 +124,10 @@ func main() {
 		}
 	}
 
-	checkDep("gh")
+	if err := checkDependencies(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	go func() {
 		if err := prq.PrefetchUser(); err != nil && prq.DebugEnabled.Load() {
 			log.Printf("[prefetch] get_user failed: %v", err)
@@ -137,13 +139,6 @@ func main() {
 	p := tea.NewProgram(prq.NewModel(cfg))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-func checkDep(name string) {
-	if _, err := exec.LookPath(name); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: '%s' is required but not installed.\n", name)
 		os.Exit(1)
 	}
 }
