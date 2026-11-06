@@ -1,0 +1,91 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/kimoofey/tui/plans/ocm-history-research
+cpu: Apple M1
+BenchmarkHistory/10k-100sessions/Extract-8         	       1	 150036917 ns/op	41612512 B/op	  850593 allocs/op
+BenchmarkHistory/10k-100sessions/Extract-8         	       1	 149778125 ns/op	41613840 B/op	  850599 allocs/op
+BenchmarkHistory/10k-100sessions/Extract-8         	       1	 151040917 ns/op	41614528 B/op	  850604 allocs/op
+BenchmarkHistory/10k-100sessions/Extract-8         	       1	 149113083 ns/op	41613872 B/op	  850597 allocs/op
+BenchmarkHistory/10k-100sessions/Extract-8         	       1	 150251833 ns/op	41611264 B/op	  850591 allocs/op
+BenchmarkHistory/10k-100sessions/Group-8           	       1	   2236750 ns/op	  376440 B/op	   10015 allocs/op
+BenchmarkHistory/10k-100sessions/Group-8           	       1	   1671375 ns/op	  376440 B/op	   10015 allocs/op
+BenchmarkHistory/10k-100sessions/Group-8           	       1	   1615666 ns/op	  376440 B/op	   10015 allocs/op
+BenchmarkHistory/10k-100sessions/Group-8           	       1	   1580792 ns/op	  376440 B/op	   10015 allocs/op
+BenchmarkHistory/10k-100sessions/Group-8           	       1	   1594084 ns/op	  376440 B/op	   10015 allocs/op
+BenchmarkHistory/10k-100sessions/WriteCandidate-8  	       1	  38772541 ns/op	10785848 B/op	  243597 allocs/op
+BenchmarkHistory/10k-100sessions/WriteCandidate-8  	       1	  41465250 ns/op	10785416 B/op	  243579 allocs/op
+BenchmarkHistory/10k-100sessions/WriteCandidate-8  	       1	  42070375 ns/op	10784712 B/op	  243567 allocs/op
+BenchmarkHistory/10k-100sessions/WriteCandidate-8  	       1	  41159209 ns/op	10784616 B/op	  243566 allocs/op
+BenchmarkHistory/10k-100sessions/WriteCandidate-8  	       1	  41376292 ns/op	10784600 B/op	  243566 allocs/op
+BenchmarkHistory/10k-100sessions/SavedDailyQuery-8 	       1	    218250 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/10k-100sessions/SavedDailyQuery-8 	       1	    131125 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/10k-100sessions/SavedDailyQuery-8 	       1	    121125 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/10k-100sessions/SavedDailyQuery-8 	       1	    137875 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/10k-100sessions/SavedDailyQuery-8 	       1	    132375 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/100k-1000sessions/Extract-8       	       1	1533604917 ns/op	414352544 B/op	 8504651 allocs/op
+BenchmarkHistory/100k-1000sessions/Extract-8       	       1	1502005875 ns/op	414354544 B/op	 8504657 allocs/op
+BenchmarkHistory/100k-1000sessions/Extract-8       	       1	1508501292 ns/op	414353744 B/op	 8504656 allocs/op
+BenchmarkHistory/100k-1000sessions/Extract-8       	       1	1502220792 ns/op	414352608 B/op	 8504652 allocs/op
+BenchmarkHistory/100k-1000sessions/Extract-8       	       1	1513193583 ns/op	414355216 B/op	 8504657 allocs/op
+BenchmarkHistory/100k-1000sessions/Group-8         	       1	  23000625 ns/op	 1816440 B/op	  100015 allocs/op
+BenchmarkHistory/100k-1000sessions/Group-8         	       1	  21986458 ns/op	 1816440 B/op	  100015 allocs/op
+BenchmarkHistory/100k-1000sessions/Group-8         	       1	  21468792 ns/op	 1816440 B/op	  100015 allocs/op
+BenchmarkHistory/100k-1000sessions/Group-8         	       1	  22224708 ns/op	 1816440 B/op	  100015 allocs/op
+BenchmarkHistory/100k-1000sessions/Group-8         	       1	  22656166 ns/op	 1816440 B/op	  100015 allocs/op
+BenchmarkHistory/100k-1000sessions/WriteCandidate-8         	       1	 574541833 ns/op	104405104 B/op	 2404586 allocs/op
+BenchmarkHistory/100k-1000sessions/WriteCandidate-8         	       1	 659915917 ns/op	104394256 B/op	 2404569 allocs/op
+BenchmarkHistory/100k-1000sessions/WriteCandidate-8         	       1	 660543000 ns/op	104394944 B/op	 2404574 allocs/op
+BenchmarkHistory/100k-1000sessions/WriteCandidate-8         	       1	 663216041 ns/op	104394944 B/op	 2404581 allocs/op
+BenchmarkHistory/100k-1000sessions/WriteCandidate-8         	       1	 660207458 ns/op	104394064 B/op	 2404566 allocs/op
+BenchmarkHistory/100k-1000sessions/SavedDailyQuery-8        	       1	    198458 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/100k-1000sessions/SavedDailyQuery-8        	       1	    129125 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/100k-1000sessions/SavedDailyQuery-8        	       1	    124500 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/100k-1000sessions/SavedDailyQuery-8        	       1	    110166 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/100k-1000sessions/SavedDailyQuery-8        	       1	    103917 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/100k-huge-session/Extract-8                	       1	1602664708 ns/op	414200360 B/op	 8500656 allocs/op
+BenchmarkHistory/100k-huge-session/Extract-8                	       1	1603578500 ns/op	414197752 B/op	 8500650 allocs/op
+BenchmarkHistory/100k-huge-session/Extract-8                	       1	1590880667 ns/op	414196856 B/op	 8500648 allocs/op
+BenchmarkHistory/100k-huge-session/Extract-8                	       1	1598301042 ns/op	414198808 B/op	 8500650 allocs/op
+BenchmarkHistory/100k-huge-session/Extract-8                	       1	1612803916 ns/op	414197880 B/op	 8500648 allocs/op
+BenchmarkHistory/100k-huge-session/Group-8                  	       1	  22639834 ns/op	 1816440 B/op	  100015 allocs/op
+BenchmarkHistory/100k-huge-session/Group-8                  	       1	  21691167 ns/op	 1816440 B/op	  100015 allocs/op
+BenchmarkHistory/100k-huge-session/Group-8                  	       1	  21331208 ns/op	 1816440 B/op	  100015 allocs/op
+BenchmarkHistory/100k-huge-session/Group-8                  	       1	  22915417 ns/op	 1816440 B/op	  100015 allocs/op
+BenchmarkHistory/100k-huge-session/Group-8                  	       1	  22996167 ns/op	 1816440 B/op	  100015 allocs/op
+BenchmarkHistory/100k-huge-session/WriteCandidate-8         	       1	 597049209 ns/op	104395856 B/op	 2404589 allocs/op
+BenchmarkHistory/100k-huge-session/WriteCandidate-8         	       1	 686007750 ns/op	104394704 B/op	 2404576 allocs/op
+BenchmarkHistory/100k-huge-session/WriteCandidate-8         	       1	 679906333 ns/op	104395760 B/op	 2404587 allocs/op
+BenchmarkHistory/100k-huge-session/WriteCandidate-8         	       1	 677524166 ns/op	104394240 B/op	 2404568 allocs/op
+BenchmarkHistory/100k-huge-session/WriteCandidate-8         	       1	 690670625 ns/op	104394864 B/op	 2404579 allocs/op
+BenchmarkHistory/100k-huge-session/SavedDailyQuery-8        	       1	    194792 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/100k-huge-session/SavedDailyQuery-8        	       1	    139458 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/100k-huge-session/SavedDailyQuery-8        	       1	    119291 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/100k-huge-session/SavedDailyQuery-8        	       1	    115709 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistory/100k-huge-session/SavedDailyQuery-8        	       1	    109875 ns/op	    8448 B/op	     327 allocs/op
+BenchmarkHistoryParseAccountingJSON-8                       	       1	      9708 ns/op	     912 B/op	      26 allocs/op
+BenchmarkHistoryParseAccountingJSON-8                       	       1	      6334 ns/op	     912 B/op	      26 allocs/op
+BenchmarkHistoryParseAccountingJSON-8                       	       1	      6542 ns/op	     912 B/op	      26 allocs/op
+BenchmarkHistoryParseAccountingJSON-8                       	       1	      6125 ns/op	     912 B/op	      26 allocs/op
+BenchmarkHistoryParseAccountingJSON-8                       	       1	      4458 ns/op	     912 B/op	      26 allocs/op
+BenchmarkHistoryResponsiveness/OneSession100Rows-8          	       1	   2102959 ns/op	  421512 B/op	    8626 allocs/op
+BenchmarkHistoryResponsiveness/OneSession100Rows-8          	       1	   1593334 ns/op	  420984 B/op	    8621 allocs/op
+BenchmarkHistoryResponsiveness/OneSession100Rows-8          	       1	   1552375 ns/op	  420984 B/op	    8621 allocs/op
+BenchmarkHistoryResponsiveness/OneSession100Rows-8          	       1	   1565959 ns/op	  420984 B/op	    8621 allocs/op
+BenchmarkHistoryResponsiveness/OneSession100Rows-8          	       1	   1524541 ns/op	  422888 B/op	    8626 allocs/op
+BenchmarkHistoryResponsiveness/BrowserBaseline-8            	       1	   1553792 ns/op	  942080 B/op	   15125 allocs/op
+BenchmarkHistoryResponsiveness/BrowserBaseline-8            	       1	   1534209 ns/op	  942080 B/op	   15125 allocs/op
+BenchmarkHistoryResponsiveness/BrowserBaseline-8            	       1	   1469917 ns/op	  942192 B/op	   15126 allocs/op
+BenchmarkHistoryResponsiveness/BrowserBaseline-8            	       1	   1575083 ns/op	  942128 B/op	   15126 allocs/op
+BenchmarkHistoryResponsiveness/BrowserBaseline-8            	       1	   1544958 ns/op	  942128 B/op	   15126 allocs/op
+BenchmarkHistoryResponsiveness/BrowserDuringExtraction-8    	       1	   1691209 ns/op	 1303424 B/op	   22525 allocs/op
+BenchmarkHistoryResponsiveness/BrowserDuringExtraction-8    	       1	   1606666 ns/op	 1307224 B/op	   22586 allocs/op
+BenchmarkHistoryResponsiveness/BrowserDuringExtraction-8    	       1	   1558250 ns/op	 1333872 B/op	   23158 allocs/op
+BenchmarkHistoryResponsiveness/BrowserDuringExtraction-8    	       1	   1496667 ns/op	 1332184 B/op	   23124 allocs/op
+BenchmarkHistoryResponsiveness/BrowserDuringExtraction-8    	       1	   1515417 ns/op	 1310304 B/op	   22660 allocs/op
+BenchmarkHistoryResponsiveness/CancelAfterFirstRow-8        	       1	   1195292 ns/op	     15459 cancel-ns/op	  170672 B/op	    4250 allocs/op
+BenchmarkHistoryResponsiveness/CancelAfterFirstRow-8        	       1	   1196375 ns/op	     15209 cancel-ns/op	  169328 B/op	    4247 allocs/op
+BenchmarkHistoryResponsiveness/CancelAfterFirstRow-8        	       1	   1195291 ns/op	     18041 cancel-ns/op	  169328 B/op	    4247 allocs/op
+BenchmarkHistoryResponsiveness/CancelAfterFirstRow-8        	       1	   1212917 ns/op	     18000 cancel-ns/op	  169328 B/op	    4247 allocs/op
+BenchmarkHistoryResponsiveness/CancelAfterFirstRow-8        	       1	   1279333 ns/op	     15917 cancel-ns/op	  172560 B/op	    4246 allocs/op
+PASS
+ok  	github.com/kimoofey/tui/plans/ocm-history-research	31.808s
