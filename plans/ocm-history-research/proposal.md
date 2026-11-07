@@ -218,3 +218,10 @@ oracles, coordinator recovery and resource-capacity evidence. Required repositor
 gates and Linux runtime/CI must pass. Until then step 2 remains in progress and
 steps 3–5 remain gated. This proposal does not convert unresolved evidence into
 an accepted implementation contract.
+
+2026-11-07 optimization follow-up: the [profiled research path](optimized-collection.md) now
+completes all ten generated huge-session stages in 1.37–1.51 s under the unchanged
+2 s deadline. Ordinary capture, atomicity and accounting checks pass; macOS/Linux
+gates pass. Historical failed timings remain valid for the old implementation.
+Sustained contention, actual UI latency, full publication and native/contracts
+work remain open. No production collector or policy approval is inferred.

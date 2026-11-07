@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -26,11 +27,26 @@ func stageSession(ctx context.Context, source, stage *sql.DB, opts extractOption
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO staged_usage VALUES(?,?)`)
-	if err != nil {
-		return nil, err
+
+	// Bound batches by rows and serialized payload (or one larger, field-capped
+	// record, flushed immediately). Every batch stays inside
+	// this one destination transaction; only the final seal makes it reusable.
+	const batchRows = 128
+	const batchPayload = 64 << 10
+	args := make([]any, 0, batchRows*2)
+	pendingBytes := 0
+	flush := func() error {
+		if len(args) == 0 {
+			return nil
+		}
+		values := strings.TrimSuffix(strings.Repeat("(?,?),", len(args)/2), ",")
+		_, e := tx.ExecContext(ctx, `INSERT INTO staged_usage VALUES `+values, args...)
+		clear(args)
+		args = args[:0]
+		pendingBytes = 0
+		return e
 	}
-	defer func() { _ = stmt.Close() }()
+
 	stagedBytes := 0
 	opts.Sink = func(u Usage) error {
 		// Accounting metadata can itself be hostile; never stage unbounded labels.
@@ -43,15 +59,29 @@ func stageSession(ctx context.Context, source, stage *sql.DB, opts extractOption
 		if e != nil {
 			return e
 		}
-		stagedBytes += len(raw) + len(usageKey(u))
+		key := usageKey(u)
+		size := len(raw) + len(key)
+		stagedBytes += size
 		if stagedBytes > 64<<20 {
 			return errors.New("stage accounting payload exceeds 64 MiB")
 		}
-		_, e = stmt.ExecContext(ctx, usageKey(u), string(raw))
-		return e
+		if pendingBytes+size > batchPayload {
+			if e = flush(); e != nil {
+				return e
+			}
+		}
+		args = append(args, key, string(raw))
+		pendingBytes += size
+		if len(args)/2 >= batchRows || pendingBytes >= batchPayload {
+			return flush()
+		}
+		return nil
 	}
 	o, err := extract(ctx, source, opts)
 	if err != nil {
+		return nil, err
+	}
+	if err = flush(); err != nil {
 		return nil, err
 	}
 	// A missing session is loss/ambiguity, not a complete empty replacement.

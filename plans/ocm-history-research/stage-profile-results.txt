@@ -1,0 +1,212 @@
+baseline
+=== RUN   TestHistoryStageProfile
+    profile_test.go:37: === RUN   TestHistoryStageProfileWorker
+        HISTORY_PROFILE {"profiled":true,"shape":"v1-huge","snapshot_to_first_row_ns":953963834,"stage_ns":1996265791}
+        --- PASS: TestHistoryStageProfileWorker (2.48s)
+        PASS
+        
+    profile_test.go:37: === RUN   TestHistoryStageProfileWorker
+        HISTORY_PROFILE {"profiled":true,"shape":"v2-huge","snapshot_to_first_row_ns":980922416,"stage_ns":2117874500}
+        --- PASS: TestHistoryStageProfileWorker (2.58s)
+        PASS
+        
+--- PASS: TestHistoryStageProfile (9.97s)
+PASS
+ok  	github.com/kimoofey/tui/plans/ocm-history-research	10.242s
+
+baseline V2 query plan
+=== RUN   TestHistoryStageProfile
+    profile_test.go:37: === RUN   TestHistoryStageProfileWorker
+            profile_test.go:86: PLAN CO-ROUTINE (subquery-2)
+            profile_test.go:86: PLAN MERGE (UNION ALL)
+            profile_test.go:86: PLAN LEFT
+            profile_test.go:86: PLAN SEARCH s USING INDEX sqlite_autoindex_session_v2_1 (id=?)
+            profile_test.go:86: PLAN SEARCH m USING INDEX session_message_session_type_seq_idx (session_id=? AND type=?)
+            profile_test.go:86: PLAN USE TEMP B-TREE FOR LAST TERM OF ORDER BY
+            profile_test.go:86: PLAN RIGHT
+            profile_test.go:86: PLAN SEARCH s USING COVERING INDEX sqlite_autoindex_session_v2_1 (id=?)
+            profile_test.go:86: PLAN SEARCH e USING INDEX event_aggregate_type (aggregate_id=? AND type=?)
+            profile_test.go:86: PLAN USE TEMP B-TREE FOR LAST TERM OF ORDER BY
+            profile_test.go:86: PLAN SCAN (subquery-2)
+        HISTORY_PROFILE {"profiled":true,"shape":"v2-huge","snapshot_to_first_row_ns":979219459,"stage_ns":2125116917}
+        --- PASS: TestHistoryStageProfileWorker (2.69s)
+        PASS
+        
+--- PASS: TestHistoryStageProfile (5.19s)
+PASS
+ok  	github.com/kimoofey/tui/plans/ocm-history-research	5.404s
+
+unordered session queries
+=== RUN   TestHistoryStageProfile
+    profile_test.go:37: === RUN   TestHistoryStageProfileWorker
+            profile_test.go:86: PLAN SEARCH s USING COVERING INDEX sqlite_autoindex_session_1 (id=?)
+            profile_test.go:86: PLAN SEARCH m USING INDEX message_session_id_idx (session_id=?)
+        HISTORY_PROFILE {"profiled":true,"shape":"v1-huge","snapshot_to_first_row_ns":2643167,"stage_ns":2118546500}
+        --- PASS: TestHistoryStageProfileWorker (2.68s)
+        PASS
+        
+    profile_test.go:37: === RUN   TestHistoryStageProfileWorker
+            profile_test.go:86: PLAN COMPOUND QUERY
+            profile_test.go:86: PLAN LEFT-MOST SUBQUERY
+            profile_test.go:86: PLAN SEARCH s USING INDEX sqlite_autoindex_session_v2_1 (id=?)
+            profile_test.go:86: PLAN SEARCH m USING INDEX session_message_session_type_seq_idx (session_id=? AND type=?)
+            profile_test.go:86: PLAN UNION ALL
+            profile_test.go:86: PLAN SEARCH s USING COVERING INDEX sqlite_autoindex_session_v2_1 (id=?)
+            profile_test.go:86: PLAN SEARCH e USING INDEX event_aggregate_type (aggregate_id=? AND type=?)
+        HISTORY_PROFILE {"profiled":true,"shape":"v2-huge","snapshot_to_first_row_ns":2709458,"stage_ns":2215033000}
+        --- PASS: TestHistoryStageProfileWorker (2.78s)
+        PASS
+        
+--- PASS: TestHistoryStageProfile (10.09s)
+PASS
+ok  	github.com/kimoofey/tui/plans/ocm-history-research	10.308s
+
+bounded batch inserts
+=== RUN   TestHistoryStageProfile
+    profile_test.go:37: === RUN   TestHistoryStageProfileWorker
+            profile_test.go:86: PLAN SEARCH s USING COVERING INDEX sqlite_autoindex_session_1 (id=?)
+            profile_test.go:86: PLAN SEARCH m USING INDEX message_session_id_idx (session_id=?)
+        HISTORY_PROFILE {"profiled":true,"shape":"v1-huge","snapshot_to_first_row_ns":2838625,"stage_ns":1703592875}
+        --- PASS: TestHistoryStageProfileWorker (2.18s)
+        PASS
+        
+    profile_test.go:37: === RUN   TestHistoryStageProfileWorker
+            profile_test.go:86: PLAN COMPOUND QUERY
+            profile_test.go:86: PLAN LEFT-MOST SUBQUERY
+            profile_test.go:86: PLAN SEARCH s USING INDEX sqlite_autoindex_session_v2_1 (id=?)
+            profile_test.go:86: PLAN SEARCH m USING INDEX session_message_session_type_seq_idx (session_id=? AND type=?)
+            profile_test.go:86: PLAN UNION ALL
+            profile_test.go:86: PLAN SEARCH s USING COVERING INDEX sqlite_autoindex_session_v2_1 (id=?)
+            profile_test.go:86: PLAN SEARCH e USING INDEX event_aggregate_type (aggregate_id=? AND type=?)
+        HISTORY_PROFILE {"profiled":true,"shape":"v2-huge","snapshot_to_first_row_ns":2653250,"stage_ns":1788130250}
+        --- PASS: TestHistoryStageProfileWorker (2.29s)
+        PASS
+        
+--- PASS: TestHistoryStageProfile (9.07s)
+PASS
+ok  	github.com/kimoofey/tui/plans/ocm-history-research	9.339s
+
+typed accounting envelope
+=== RUN   TestHistoryStageProfile
+    profile_test.go:37: === RUN   TestHistoryStageProfileWorker
+            profile_test.go:86: PLAN SEARCH s USING COVERING INDEX sqlite_autoindex_session_1 (id=?)
+            profile_test.go:86: PLAN SEARCH m USING INDEX message_session_id_idx (session_id=?)
+        HISTORY_PROFILE {"profiled":true,"shape":"v1-huge","snapshot_to_first_row_ns":2632000,"stage_ns":1658155500}
+        --- PASS: TestHistoryStageProfileWorker (2.18s)
+        PASS
+        
+    profile_test.go:37: === RUN   TestHistoryStageProfileWorker
+            profile_test.go:86: PLAN COMPOUND QUERY
+            profile_test.go:86: PLAN LEFT-MOST SUBQUERY
+            profile_test.go:86: PLAN SEARCH s USING INDEX sqlite_autoindex_session_v2_1 (id=?)
+            profile_test.go:86: PLAN SEARCH m USING INDEX session_message_session_type_seq_idx (session_id=? AND type=?)
+            profile_test.go:86: PLAN UNION ALL
+            profile_test.go:86: PLAN SEARCH s USING COVERING INDEX sqlite_autoindex_session_v2_1 (id=?)
+            profile_test.go:86: PLAN SEARCH e USING INDEX event_aggregate_type (aggregate_id=? AND type=?)
+        HISTORY_PROFILE {"profiled":true,"shape":"v2-huge","snapshot_to_first_row_ns":2891250,"stage_ns":1831529917}
+        --- PASS: TestHistoryStageProfileWorker (2.39s)
+        PASS
+        
+--- PASS: TestHistoryStageProfile (9.29s)
+PASS
+ok  	github.com/kimoofey/tui/plans/ocm-history-research	9.510s
+
+Single multi-field JSON projection
+=== RUN   TestHistoryStageProfile
+    profile_test.go:37: === RUN   TestHistoryStageProfileWorker
+            profile_test.go:86: PLAN SEARCH s USING COVERING INDEX sqlite_autoindex_session_1 (id=?)
+            profile_test.go:86: PLAN SEARCH m USING INDEX message_session_id_idx (session_id=?)
+        HISTORY_PROFILE {"profiled":true,"shape":"v1-huge","snapshot_to_first_row_ns":4101875,"stage_ns":1368548875}
+        --- PASS: TestHistoryStageProfileWorker (1.89s)
+        PASS
+        
+    profile_test.go:37: === RUN   TestHistoryStageProfileWorker
+            profile_test.go:86: PLAN COMPOUND QUERY
+            profile_test.go:86: PLAN LEFT-MOST SUBQUERY
+            profile_test.go:86: PLAN SEARCH s USING INDEX sqlite_autoindex_session_v2_1 (id=?)
+            profile_test.go:86: PLAN SEARCH m USING INDEX session_message_session_type_seq_idx (session_id=? AND type=?)
+            profile_test.go:86: PLAN UNION ALL
+            profile_test.go:86: PLAN SEARCH s USING COVERING INDEX sqlite_autoindex_session_v2_1 (id=?)
+            profile_test.go:86: PLAN SEARCH e USING INDEX event_aggregate_type (aggregate_id=? AND type=?)
+        HISTORY_PROFILE {"profiled":true,"shape":"v2-huge","snapshot_to_first_row_ns":4086583,"stage_ns":1552567250}
+        --- PASS: TestHistoryStageProfileWorker (2.09s)
+        PASS
+        
+--- PASS: TestHistoryStageProfile (9.05s)
+PASS
+ok  	github.com/kimoofey/tui/plans/ocm-history-research	9.286s
+File: ocm-history-research.test
+Type: cpu
+Time: 2026-11-07 22:04:12 CET
+Duration: 2.31s, Total samples = 2550ms (110.35%)
+Showing nodes accounting for 690ms, 27.06% of 2550ms total
+Dropped 68 nodes (cum <= 12.75ms)
+Showing top 30 nodes out of 185
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%     1490ms 58.43%  github.com/kimoofey/tui/plans/ocm-history-research.TestHistoryStageProfileWorker
+         0     0%     0%     1490ms 58.43%  github.com/kimoofey/tui/plans/ocm-history-research.extract
+         0     0%     0%     1490ms 58.43%  github.com/kimoofey/tui/plans/ocm-history-research.stageSession
+         0     0%     0%     1490ms 58.43%  testing.tRunner
+         0     0%     0%     1180ms 46.27%  modernc.org/sqlite.(*conn).step
+         0     0%     0%     1180ms 46.27%  modernc.org/sqlite/lib.Xsqlite3_step
+         0     0%     0%     1180ms 46.27%  modernc.org/sqlite/lib._sqlite3Step
+         0     0%     0%     1180ms 46.27%  modernc.org/sqlite/lib._sqlite3VdbeExec
+         0     0%     0%     1060ms 41.57%  database/sql.withLock
+         0     0%     0%      910ms 35.69%  database/sql.(*DB).queryDC
+         0     0%     0%      910ms 35.69%  database/sql.(*DB).queryDC.func1
+         0     0%     0%      910ms 35.69%  database/sql.(*Tx).QueryContext
+         0     0%     0%      910ms 35.69%  database/sql.ctxDriverQuery
+         0     0%     0%      910ms 35.69%  modernc.org/sqlite.(*conn).QueryContext
+         0     0%     0%      910ms 35.69%  modernc.org/sqlite.(*conn).query
+         0     0%     0%      910ms 35.69%  modernc.org/sqlite.(*stmt).query
+     690ms 27.06% 27.06%      690ms 27.06%  syscall.syscall6
+         0     0% 27.06%      550ms 21.57%  runtime.systemstack
+         0     0% 27.06%      530ms 20.78%  golang.org/x/sys/unix.Pread (inline)
+         0     0% 27.06%      530ms 20.78%  golang.org/x/sys/unix.pread
+         0     0% 27.06%      530ms 20.78%  modernc.org/libc.Xpread
+         0     0% 27.06%      530ms 20.78%  modernc.org/sqlite/lib._seekAndRead
+         0     0% 27.06%      530ms 20.78%  modernc.org/sqlite/lib._sqlite3OsRead (inline)
+         0     0% 27.06%      530ms 20.78%  modernc.org/sqlite/lib._unixRead
+         0     0% 27.06%      500ms 19.61%  runtime.schedule
+         0     0% 27.06%      490ms 19.22%  runtime.mcall
+         0     0% 27.06%      470ms 18.43%  runtime.findRunnable
+         0     0% 27.06%      370ms 14.51%  modernc.org/sqlite/lib._getPageNormal
+         0     0% 27.06%      370ms 14.51%  modernc.org/sqlite/lib._sqlite3PagerGet (inline)
+         0     0% 27.06%      370ms 14.51%  modernc.org/sqlite/lib._vdbeColumnFromOverflow
+File: ocm-history-research.test
+Type: cpu
+Time: 2026-11-07 22:11:01 CET
+Duration: 1.71s, Total samples = 1570ms (91.82%)
+Showing nodes accounting for 1210ms, 77.07% of 1570ms total
+Showing top 30 nodes out of 186
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%     1340ms 85.35%  github.com/kimoofey/tui/plans/ocm-history-research.TestHistoryStageProfileWorker
+         0     0%     0%     1340ms 85.35%  github.com/kimoofey/tui/plans/ocm-history-research.extract
+         0     0%     0%     1340ms 85.35%  github.com/kimoofey/tui/plans/ocm-history-research.stageSession
+         0     0%     0%     1340ms 85.35%  testing.tRunner
+         0     0%     0%     1330ms 84.71%  database/sql.withLock
+         0     0%     0%     1300ms 82.80%  modernc.org/sqlite.(*conn).step
+         0     0%     0%     1300ms 82.80%  modernc.org/sqlite/lib.Xsqlite3_step
+         0     0%     0%     1300ms 82.80%  modernc.org/sqlite/lib._sqlite3Step
+         0     0%     0%     1300ms 82.80%  modernc.org/sqlite/lib._sqlite3VdbeExec
+    1210ms 77.07% 77.07%     1210ms 77.07%  syscall.syscall6
+         0     0% 77.07%     1100ms 70.06%  database/sql.(*Rows).Next
+         0     0% 77.07%     1100ms 70.06%  database/sql.(*Rows).Next.func1
+         0     0% 77.07%     1100ms 70.06%  database/sql.(*Rows).nextLocked
+         0     0% 77.07%     1100ms 70.06%  modernc.org/sqlite.(*rows).Next
+         0     0% 77.07%      990ms 63.06%  golang.org/x/sys/unix.Pread (inline)
+         0     0% 77.07%      990ms 63.06%  golang.org/x/sys/unix.pread
+         0     0% 77.07%      990ms 63.06%  modernc.org/libc.Xpread
+         0     0% 77.07%      990ms 63.06%  modernc.org/sqlite/lib._seekAndRead
+         0     0% 77.07%      990ms 63.06%  modernc.org/sqlite/lib._sqlite3OsRead (inline)
+         0     0% 77.07%      990ms 63.06%  modernc.org/sqlite/lib._unixRead
+         0     0% 77.07%      650ms 41.40%  modernc.org/sqlite/lib._vdbeColumnFromOverflow
+         0     0% 77.07%      610ms 38.85%  modernc.org/sqlite/lib._accessPayload
+         0     0% 77.07%      610ms 38.85%  modernc.org/sqlite/lib._sqlite3BtreePayload (inline)
+         0     0% 77.07%      530ms 33.76%  modernc.org/sqlite/lib._getPageNormal
+         0     0% 77.07%      530ms 33.76%  modernc.org/sqlite/lib._sqlite3PagerGet (inline)
+         0     0% 77.07%      390ms 24.84%  modernc.org/sqlite/lib._getAndInitPage
+         0     0% 77.07%      390ms 24.84%  modernc.org/sqlite/lib._moveToChild
+         0     0% 77.07%      380ms 24.20%  modernc.org/sqlite/lib._readDbPage
+         0     0% 77.07%      360ms 22.93%  modernc.org/sqlite/lib._moveToLeftmost
+         0     0% 77.07%      360ms 22.93%  modernc.org/sqlite/lib._sqlite3BtreeNext

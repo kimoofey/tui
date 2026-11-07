@@ -455,3 +455,45 @@ func TestHistoryQueryPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestHistoryMultiPathProjectionTypes(t *testing.T) {
+	for _, v2 := range []bool{false, true} {
+		t.Run(fmt.Sprint(v2), func(t *testing.T) {
+			path, writer := fixture(t)
+			if v2 {
+				execute(t, writer, experimentV2Schema)
+			}
+			addSession(t, writer, v2, "s")
+			cases := []struct {
+				id, cost string
+				known    bool
+				want     float64
+			}{
+				{"zero", "0", true, 0}, {"quoted", `"3"`, false, 0}, {"boolean", "true", false, 0},
+				{"overflow", "1e400", false, 0}, {"negative", "-1", false, 0}, {"fraction", "0.123456789012345", true, 0.123456789012345},
+			}
+			for _, tc := range cases {
+				data := `{"role":"assistant","providerID":"p","modelID":"m","model":{"providerID":"p","id":"m"},"cost":` + tc.cost + `,"tokens":{"input":9223372036854775807,"output":9223372036854775808,"reasoning":1.0,"cache":{"read":1e3,"write":"4"}}}`
+				insertUsage(t, writer, v2, tc.id, "s", 1500, data)
+			}
+			o := readFixture(t, path, extractOptions{Session: "s"})
+			for _, tc := range cases {
+				u, ok := o.Items["s\x00message\x00"+tc.id]
+				if !ok || (u.Cost != nil) != tc.known {
+					t.Fatal("cost presence/type changed", tc.id)
+				}
+				if tc.known && *u.Cost != tc.want {
+					t.Fatal("cost value changed", tc.id)
+				}
+				if u.Tokens[0] == nil || *u.Tokens[0] != 9223372036854775807 {
+					t.Fatal("int64 boundary rounded", tc.id)
+				}
+				for _, value := range u.Tokens[1:] {
+					if value != nil {
+						t.Fatal("invalid token type coerced to integer", tc.id)
+					}
+				}
+			}
+		})
+	}
+}

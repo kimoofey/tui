@@ -303,3 +303,45 @@ opt-in scale measurements were repeated on Linux. The Docker image supplies
 neither live credentials nor native macOS applications. No native source was
 opened, discovered or deleted. No production code was changed. See the current
 [Step 2 closure review](step2-status.md) for remaining work.
+
+## Huge-session profiling/optimization — 2026-11-07
+
+Baseline `831e474`, clean workspace before this increment. Research-only changes:
+explicit unordered session queries, one multi-field raw-JSON projection, typed
+accounting envelope, bounded cancellable stage insert batches, opt-in profiling,
+and sampled heap/RSS in the bounded runner. Added numeric-type/membership and
+later-batch failure/duplicate/cancellation checks. The process-exit test now
+interrupts after a batch reaches SQLite. No production/dependency/PRQ changes.
+
+Final commands use Go 1.25.0. Local macOS commands set
+`GOCACHE=/private/tmp/ocm-history-20261106-tj193pol/go-build` and
+`GOTOOLCHAIN=go1.25.0`:
+
+| Command | Result |
+| --- | --- |
+| `go test ./plans/ocm-history-research` | PASS |
+| `go test ./ocm/... ./cmd/ocm/...` | PASS |
+| `go vet ./...` | PASS |
+| `go test -race ./...` | PASS; all packages |
+| `make build` | PASS; nonfatal sandbox module stat-cache write warnings |
+| `go test -tags mock ./...` | PASS; all packages |
+| `go build -tags mock ./cmd/prq ./cmd/ocm` | PASS; nonfatal stat-cache warning |
+| Opt-in profile runner, V1/V2 huge | PASS; diagnostic CPU runs, not deadline acceptance |
+| Final opt-in bounded scale, six shapes × five fresh processes | PASS, 46.030 s; 10/10 huge stages complete below 2 s, zero diagnostic retries |
+
+Linux final source verification also passes all five gates (vet, repository race,
+make build with container `/tmp` output, repository mock tests and mock builds),
+exit 0. Go 1.25.0 linux/arm64 in the same pinned `golang:1.25.0` image as the prior
+run. Workspace and host module ZIP seed are mounted read-only; Linux build/module
+caches are writable temporary directories under `/private/tmp/ocm-stage-linux-*`.
+[Raw Linux output](optimized-linux-verification.txt). No hosted Ubuntu/amd64 CI
+run is claimed. No live credentials, native OpenCode calls or terminal launches.
+Final scale ran only after local and Linux checks completed, avoiding concurrent
+build/test contention. Exploratory intermediate scale output was replaced by the
+final 30 samples; the historical pre-optimization results remain intact.
+
+See [optimization report](optimized-collection.md), [raw profiles/query plans](stage-profile-results.txt)
+and [raw bounded results](optimized-bounded-results.txt). All changed Go is
+gofmt-clean. Binary profiles and generated databases stay outside git. Native,
+contention/publication and approved-contract gates remain open; improved fixture
+performance alone does not complete Step 2.

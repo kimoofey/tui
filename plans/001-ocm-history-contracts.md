@@ -312,3 +312,10 @@ repository mock tests and mock builds now pass. Hosted CI for current changes
 remains unverified. The [current closure checklist](ocm-history-research/step2-status.md) separates resolved
 items from huge-session completion, remaining performance/native evidence,
 actionable recovery and final contract decisions. Step 2 remains IN PROGRESS.
+
+2026-11-07 optimization follow-up: the [profiled research path](ocm-history-research/optimized-collection.md) now
+completes all ten generated huge-session stages in 1.37–1.51 s under the unchanged
+2 s deadline. Ordinary capture, atomicity and accounting checks pass; macOS/Linux
+gates pass. Historical failed timings remain valid for the old implementation.
+Sustained contention, actual UI latency, full publication and native/contracts
+work remain open. No production collector or policy approval is inferred.

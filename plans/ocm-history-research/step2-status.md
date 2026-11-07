@@ -29,23 +29,24 @@ experiments were not rerun inside Linux; their recorded timings remain macOS dat
 
 | Priority | Required closure | Concrete evidence / decision needed |
 | --- | --- | --- |
-| 1 | Huge-session completion or explicit supported limitation | Both V1/V2 huge shapes completed **0/3** bounded staging attempts under 2 s. Prove a completion route within accepted reader/resource budgets, or explicitly revise scope/budgets to accept deferral and its coverage/deletion consequences. The longer diagnostic retry is not an operational fallback. |
+| 1 | Accept measured huge-session scope and remaining limits | [Optimization](optimized-collection.md) now completes all 10 huge-session attempts under the unchanged 2 s deadline (1.37–1.51 s). Confirm under sustained contention in item 2 and explicitly accept the supported dimensions/resource caps and deferral/deletion policy for larger scopes. The original measured completion failure is addressed. |
 | 2 | Complete Gate C measurements | Measure bounded inventory → capture → reconciliation → per-session publication, initial import and unchanged/new/changed/old-correction refresh; browser contention during archive writes; actual input/event-loop/render latency; sustained writer/checkpoint pressure; blocked-query cancellation; peak heap/RSS, stage disk reserve and archive WAL/journal overhead. Record distributions and agree numeric budgets. |
 | 3 | Supported native accounting/deletion matrix | Pin supported versions/layouts; validate compaction, revert/pruning/removal, migration identity mapping and skipped rows, correction authority versus lost records, and version-specific recursive deletion/bulk overlap/new-child scope. Use explicit conservative unresolved states where authority cannot be established. |
 | 4 | Actionable parent-death recovery contract | Specify what admits another collector/deleter after OCM dies with a mutating native child alive. Define the recovery operation, admissible completion evidence, lock aliases/identity, bounded waits/cancellation, epochs and restart states. Prove the mechanism or justify an explicitly approved narrower contract with targeted macOS/Linux process evidence. |
 | 5 | Freeze the handoff | Revise/approve the consolidated proposal, supply exact optional capability/result signatures and archive schema/keys/indexes/durability settings, define the explicit copy/import resolution operation and state transitions, accept budgets and update steps 3–5/design records consistently. |
 
-Priorities 1–2 form the next executable research increment. Native tracing can
+Item 2 is the next executable performance increment; item 1 still needs scope/limit acceptance. Native tracing can
 proceed independently; final contract approval follows the evidence. This review
 does not require production collector, archive startup, CLI or browser changes.
 
 ## Why the current evidence does not close these items
 
-[Bounded results](bounded-results.md) establish capture-component timings, not a
-complete import/refresh pipeline. All 6,600 ordinary session reads completed;
-huge attempts safely deferred and diagnostic staging took 2.01–2.34 s. Their
-end-of-interval HeapAlloc is not peak live heap or RSS. A permanently deferred
-new session has unavailable history and cannot pass guarded deletion; it must
+The [original bounded results](bounded-results.md) established capture-component
+timings with failed huge-session completion. The [optimized run](optimized-collection.md)
+now passes 11,000 ordinary observations and all 10 huge stages without diagnostic
+retries. Neither run measures the full import/refresh pipeline. New sampled heap
+and whole-worker RSS are not an exact additional live-heap bound. A permanently
+deferred new session has unavailable history and cannot pass guarded deletion; it must
 not count as successfully imported toward the five-second target without an
 explicitly revised support contract.
 

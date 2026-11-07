@@ -31,6 +31,19 @@ type Observation struct {
 	Items                          map[string]Usage
 	Diagnostics                    map[string]int
 }
+
+// Keep projected fields raw until validated. A typed envelope avoids allocating
+// a map and keys per row without coercing malformed values into recorded zero.
+type accountingFields struct {
+	Role, Source, Cost, Model, ProviderID, ModelID, Variant, Tokens json.RawMessage
+}
+
+func stringValue(raw json.RawMessage) string {
+	var value string
+	_ = json.Unmarshal(raw, &value)
+	return value
+}
+
 type extractOptions struct {
 	Session       string // empty selects all sessions for full-import measurements
 	AfterSnapshot func()
@@ -128,33 +141,7 @@ func extract(ctx context.Context, db *sql.DB, opts extractOptions) (_ *Observati
 	if opts.AfterSnapshot != nil {
 		opts.AfterSnapshot()
 	}
-	// SQLite parses JSON inside the engine but returns only accounting fields.
-	// CASE guards malformed JSON. Parse cost/token types in Go; never CAST strings
-	// to zero or coalesce unknowns into recorded zero.
-	projection := func(alias string) string {
-		return `CASE WHEN json_valid(` + alias + `.data) THEN json_object(
-   'role',json_extract(` + alias + `.data,'$.role'),
-   'source',json_extract(` + alias + `.data,'$.source'),
-   'cost',` + alias + `.data -> '$.cost',
-   'model',json_extract(` + alias + `.data,'$.model'),
-   'providerID',json_extract(` + alias + `.data,'$.providerID'),
-   'modelID',json_extract(` + alias + `.data,'$.modelID'),
-   'variant',json_extract(` + alias + `.data,'$.variant'),
-   'tokens',json_extract(` + alias + `.data,'$.tokens')) ELSE NULL END`
-	}
-	q := `SELECT m.id,m.session_id,CASE WHEN typeof(m.time_created)='integer' THEN m.time_created END,'message',` + projection("m") + `
- FROM message m JOIN session s ON s.id=m.session_id ORDER BY m.session_id,m.id`
-	if o.Schema == "session_v2" {
-		q = `SELECT m.id,m.session_id,CASE WHEN typeof(m.time_created)='integer' THEN m.time_created END,'message',` + projection("m") + `
- FROM session_message m JOIN session_v2 s ON s.id=m.session_id
- WHERE m.type='assistant' AND (s.fork_session_id IS NULL OR m.time_created>=s.time_created OR m.time_created IS NULL)
- UNION ALL SELECT e.id,e.aggregate_id,CASE WHEN typeof(e.created)='integer' THEN e.created END,'event',` + projection("e") + `
- FROM event e JOIN session_v2 s ON s.id=e.aggregate_id WHERE e.type='session.usage.recorded.1'
- ORDER BY 2,4,1`
-	}
-	if opts.Session != "" {
-		q = `SELECT * FROM (` + q + `) WHERE session_id=?`
-	}
+	q, args := usageQuery(o.Schema, opts.Session)
 	rows, err = tx.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -182,19 +169,22 @@ func extract(ctx context.Context, db *sql.DB, opts extractOptions) (_ *Observati
 			o.Diagnostics["malformed_json"]++
 			continue
 		}
-		var fields map[string]json.RawMessage
-		if err = json.Unmarshal([]byte(raw.String), &fields); err != nil {
+		// The SQL projection has a fixed eight-slot envelope. Preserve each value
+		// as raw JSON so cost/token types and integer boundaries stay strict.
+		var projected [8]json.RawMessage
+		if err = json.Unmarshal([]byte(raw.String), &projected); err != nil {
 			return nil, err
 		}
-		stringField := func(key string) string { var s string; _ = json.Unmarshal(fields[key], &s); return s }
-		if o.Schema == "session" && stringField("role") != "assistant" {
-			if stringField("role") != "user" {
+		fields := accountingFields{projected[0], projected[1], projected[2], projected[3], projected[4], projected[5], projected[6], projected[7]}
+
+		if o.Schema == "session" && stringValue(fields.Role) != "assistant" {
+			if stringValue(fields.Role) != "user" {
 				o.Diagnostics["unknown_role"]++
 			}
 			continue
 		}
-		if u.Kind == "event" && stringField("source") != "compaction" {
-			if stringField("source") == "" {
+		if u.Kind == "event" && stringValue(fields.Source) != "compaction" {
+			if stringValue(fields.Source) == "" {
 				o.Diagnostics["unknown_event_source"]++
 			}
 			continue
@@ -204,21 +194,21 @@ func extract(ctx context.Context, db *sql.DB, opts extractOptions) (_ *Observati
 		}
 		u.At = stamp.Int64
 		u.TimeKnown = stamp.Valid
-		u.Cost = number(fields["cost"])
+		u.Cost = number(fields.Cost)
 		if u.Cost == nil {
 			o.Diagnostics["unknown_cost"]++
 		}
 		if o.Schema == "session" {
-			u.Provider = stringField("providerID")
-			u.Model = stringField("modelID")
-			u.Variant = stringField("variant")
+			u.Provider = stringValue(fields.ProviderID)
+			u.Model = stringValue(fields.ModelID)
+			u.Variant = stringValue(fields.Variant)
 		} else {
 			var model struct {
 				Provider string `json:"providerID"`
 				ID       string `json:"id"`
 				Variant  string `json:"variant"`
 			}
-			if json.Unmarshal(fields["model"], &model) == nil {
+			if json.Unmarshal(fields.Model, &model) == nil {
 				u.Provider = model.Provider
 				u.Model = model.ID
 				u.Variant = model.Variant
@@ -231,7 +221,7 @@ func extract(ctx context.Context, db *sql.DB, opts extractOptions) (_ *Observati
 			Input, Output, Reasoning json.RawMessage
 			Cache                    struct{ Read, Write json.RawMessage }
 		}
-		if e := json.Unmarshal(fields["tokens"], &tokens); e != nil {
+		if e := json.Unmarshal(fields.Tokens, &tokens); e != nil {
 			o.Diagnostics["invalid_tokens"]++
 		}
 		for i, v := range []json.RawMessage{tokens.Input, tokens.Output, tokens.Reasoning, tokens.Cache.Read, tokens.Cache.Write} {
@@ -335,4 +325,42 @@ func aggregate(o *Observation, zone *time.Location, from, to *int64) map[bucketK
 		out[k] = b
 	}
 	return out
+}
+
+// usageQuery projects accounting only; callers own one snapshot for every row.
+func usageQuery(schema, session string) (string, []any) {
+	// SQLite parses JSON inside the engine but returns only accounting fields.
+	// CASE guards malformed JSON. Parse cost/token types in Go; never CAST strings
+	// to zero or coalesce unknowns into recorded zero.
+	projection := func(alias string) string {
+		// A single multi-path extraction avoids repeatedly loading overflow
+		// pages for the same large source JSON. Multiple paths return a JSON
+		// array, retaining JSON types rather than SQL scalar coercions.
+		return `CASE WHEN json_valid(` + alias + `.data) THEN json_extract(` + alias + `.data,
+ '$.role','$.source','$.cost','$.model','$.providerID','$.modelID','$.variant','$.tokens') ELSE NULL END`
+	}
+
+	// No consumer depends on scan order: observations are identity maps and disk
+	// stages enforce identity with their primary key. Sorting projected JSON before
+	// the first row prevents early row-limit cancellation and wastes snapshot time.
+	messageFilter, eventFilter := "", ""
+	var args []any
+	if session != "" {
+		messageFilter = " AND m.session_id=?"
+		eventFilter = " AND e.aggregate_id=?"
+		args = append(args, session)
+	}
+	q := `SELECT m.id,m.session_id,CASE WHEN typeof(m.time_created)='integer' THEN m.time_created END,'message',` + projection("m") + `
+ FROM message m JOIN session s ON s.id=m.session_id WHERE 1=1` + messageFilter
+	if schema == "session_v2" {
+		q = `SELECT m.id,m.session_id,CASE WHEN typeof(m.time_created)='integer' THEN m.time_created END,'message',` + projection("m") + `
+ FROM session_message m JOIN session_v2 s ON s.id=m.session_id
+ WHERE m.type='assistant' AND (s.fork_session_id IS NULL OR m.time_created>=s.time_created OR m.time_created IS NULL)` + messageFilter + `
+ UNION ALL SELECT e.id,e.aggregate_id,CASE WHEN typeof(e.created)='integer' THEN e.created END,'event',` + projection("e") + `
+ FROM event e JOIN session_v2 s ON s.id=e.aggregate_id WHERE e.type='session.usage.recorded.1'` + eventFilter
+		if session != "" {
+			args = append(args, session)
+		}
+	}
+	return q, args
 }

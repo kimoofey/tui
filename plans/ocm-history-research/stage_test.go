@@ -13,6 +13,8 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -125,6 +127,8 @@ type boundedResult struct {
 	TotalNS, MaxSessionNS, MaxReaderAttemptNS, StageNS int64
 	StageBytes                                         int64
 	AllocatedBytes, HeapIncreaseBytes                  uint64
+	SampledHeapIncreaseBytes                           uint64
+	WorkerPeakRSSBytes                                 int64
 	ExceptionalComplete                                bool
 	DiagnosticStageNS                                  int64
 }
@@ -135,6 +139,24 @@ func measureBounded(t *testing.T, w workload, source *sql.DB) {
 	runtime.GC()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
+	var peak atomic.Uint64
+	peak.Store(before.HeapAlloc)
+	stop, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		ticker := time.NewTicker(time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				var m runtime.MemStats
+				runtime.ReadMemStats(&m)
+				peak.Store(max(peak.Load(), m.HeapAlloc))
+			}
+		}
+	}()
 	combined := map[bucketKey]bucket{}
 	started := time.Now()
 	// Fixed generated IDs are the independent fixture inventory. This does NOT
@@ -203,9 +225,12 @@ func measureBounded(t *testing.T, w workload, source *sql.DB) {
 		}
 	}
 	r.TotalNS = time.Since(started).Nanoseconds()
+	close(stop)
+	<-stopped
 	runtime.ReadMemStats(&after)
 	r.AllocatedBytes = after.TotalAlloc - before.TotalAlloc
 	r.HeapIncreaseBytes = positiveDelta(after.HeapAlloc, before.HeapAlloc)
+	r.SampledHeapIncreaseBytes = positiveDelta(max(peak.Load(), after.HeapAlloc), before.HeapAlloc)
 	if r.Staged == 0 {
 		if !reflect.DeepEqual(combined, workloadOracle(w)) {
 			t.Fatal("session sweep differs from independent oracle")
@@ -252,10 +277,15 @@ func TestHistoryBoundedScale(t *testing.T) {
 	if !*historyBounded {
 		t.Skip("opt-in bounded generated experiment")
 	}
+	if *historySamples < 1 || *historySamples > 20 {
+		t.Fatal("history-samples must be 1-20")
+	}
+	matched := false
 	for _, w := range scaleWorkloads {
 		if *historyShape != "" && *historyShape != w.Name {
 			continue
 		}
+		matched = true
 		t.Run(w.Name, func(t *testing.T) {
 			path := generateWorkload(t, w)
 			for sample := 0; sample < *historySamples; sample++ {
@@ -268,8 +298,24 @@ func TestHistoryBoundedScale(t *testing.T) {
 				}
 				found := false
 				for line := range strings.SplitSeq(string(output), "\n") {
-					if strings.HasPrefix(line, "HISTORY_BOUNDED ") {
-						t.Log(line)
+					if data, ok := strings.CutPrefix(line, "HISTORY_BOUNDED "); ok {
+						var result boundedResult
+						if err = json.Unmarshal([]byte(data), &result); err != nil {
+							t.Fatal(err)
+						}
+						usage, ok := cmd.ProcessState.SysUsage().(*syscall.Rusage)
+						if !ok {
+							t.Fatal("worker usage unavailable")
+						}
+						result.WorkerPeakRSSBytes = usage.Maxrss
+						if runtime.GOOS == "linux" {
+							result.WorkerPeakRSSBytes *= 1024
+						}
+						encoded, err := json.Marshal(result)
+						if err != nil {
+							t.Fatal(err)
+						}
+						t.Logf("HISTORY_BOUNDED %s", encoded)
 						found = true
 					}
 				}
@@ -278,6 +324,9 @@ func TestHistoryBoundedScale(t *testing.T) {
 				}
 			}
 		})
+	}
+	if !matched {
+		t.Fatal("unknown history-shape")
 	}
 }
 
@@ -332,7 +381,7 @@ func TestHistoryStageCrash(t *testing.T) {
 		source := openReader(t, sourcePath)
 		stage := workloadDB(t, os.Getenv("OCM_RESEARCH_CRASH_STAGE"), "rw")
 		_, _ = stageSession(context.Background(), source, stage, extractOptions{Session: "s", AfterItem: func(n int) {
-			if n == 2 {
+			if n == 130 {
 				os.Exit(17)
 			}
 		}})
@@ -340,8 +389,8 @@ func TestHistoryStageCrash(t *testing.T) {
 	}
 	path, writer := fixture(t)
 	addSession(t, writer, false, "s")
-	for _, id := range []string{"a", "b", "c"} {
-		insertUsage(t, writer, false, id, "s", 1500, payload(false, "p", "m", "", 1))
+	for i := range 256 {
+		insertUsage(t, writer, false, fmt.Sprintf("m%04d", i), "s", 1500, payload(false, "p", "m", "", 1))
 	}
 	stage := newStage(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -359,7 +408,98 @@ func TestHistoryStageCrash(t *testing.T) {
 		t.Fatal(err)
 	}
 	var n int
-	if err = stage.db.QueryRow(`SELECT count(*) FROM staged_usage`).Scan(&n); err != nil || n != 3 {
+	if err = stage.db.QueryRow(`SELECT count(*) FROM staged_usage`).Scan(&n); err != nil || n != 256 {
 		t.Fatal("retry not complete", err)
+	}
+}
+
+// Fail after at least one full batch has reached SQLite, so rollback must undo
+// already inserted rows as well as discard the in-memory tail.
+func TestHistoryStageBatchRollback(t *testing.T) {
+	for _, mode := range []string{"cancel", "later-insert", "duplicate"} {
+		t.Run(mode, func(t *testing.T) {
+			path, writer := fixture(t)
+			addSession(t, writer, false, "s")
+			if mode == "duplicate" {
+				execute(t, writer, `DROP TABLE message; CREATE TABLE message(id TEXT,session_id TEXT,time_created INTEGER,time_updated INTEGER,data TEXT)`)
+			}
+			for i := range 256 {
+				insertUsage(t, writer, false, fmt.Sprintf("m%04d", i), "s", 1500, payload(false, "p", "m", "", 1))
+			}
+			if mode == "duplicate" {
+				insertUsage(t, writer, false, "m0000", "s", 1500, payload(false, "p", "m", "", 1))
+			}
+			stage := newStage(t)
+			if mode == "later-insert" {
+				requireSQL(t, stage.db, `CREATE TRIGGER fail BEFORE INSERT ON staged_usage WHEN NEW.key=char(115,0)||'message'||char(0)||'m0130' BEGIN SELECT RAISE(FAIL,'injected later batch'); END`)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			opts := extractOptions{Session: "s"}
+			if mode == "cancel" {
+				opts.AfterItem = func(n int) {
+					if n == 130 {
+						cancel()
+					}
+				}
+			}
+			o, err := stageSession(ctx, openReader(t, path), stage.db, opts)
+			if err == nil || o != nil {
+				t.Fatal("failed later batch accepted")
+			}
+			assertUnsealed(t, stage.db)
+		})
+	}
+}
+
+func TestHistorySessionQueryMembership(t *testing.T) {
+	for _, v2 := range []bool{false, true} {
+		t.Run(fmt.Sprint(v2), func(t *testing.T) {
+			w := workload{"membership", 120, 4, v2}
+			source := openReader(t, generateWorkload(t, w))
+			full, err := extract(context.Background(), source, extractOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Reverse unordered scans as a second traversal, without changing source data.
+			requireSQL(t, source, `PRAGMA reverse_unordered_selects=ON`)
+			combined := map[string]Usage{}
+			for i := range w.Sessions {
+				o, err := extract(context.Background(), source, extractOptions{Session: fmt.Sprintf("s%06d", i)})
+				if err != nil || !o.Complete || len(o.Sessions) != 1 {
+					t.Fatal("session scope failed", err)
+				}
+				for k, u := range o.Items {
+					if _, ok := combined[k]; ok {
+						t.Fatal("scope overlap")
+					}
+					combined[k] = u
+				}
+			}
+			if !reflect.DeepEqual(combined, full.Items) {
+				t.Fatal("session query changed accounting membership")
+			}
+		})
+	}
+}
+
+func TestHistoryStageLargeAccountingRecord(t *testing.T) {
+	path, writer := fixture(t)
+	addSession(t, writer, false, "s")
+	// Each field fits its cap, but JSON escaping makes this single record exceed
+	// the batch's normal 64 KiB payload target. It must remain lossless.
+	label := strings.Repeat("\x00", 4096)
+	insertUsage(t, writer, false, "large", "s", 1500, payload(false, label, label, label, 1))
+	stage := newStage(t)
+	if _, err := stageSession(context.Background(), openReader(t, path), stage.db, extractOptions{Session: "s"}); err != nil {
+		t.Fatal(err)
+	}
+	var raw string
+	if err := stage.db.QueryRow(`SELECT accounting FROM staged_usage`).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var u Usage
+	if err := json.Unmarshal([]byte(raw), &u); err != nil || u.Provider != label || u.Model != label || u.Variant != label {
+		t.Fatal("oversized singleton changed accounting", err)
 	}
 }

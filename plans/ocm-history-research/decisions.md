@@ -173,3 +173,10 @@ snapshots and atomic disk staging across 18 fresh generated workers. Multi-sessi
 2 s deadline and safely defers. Completion/liveness and other gate C evidence
 remain open. Review the consolidated [implementation contract proposal](proposal.md)
 before freezing interfaces or starting step 3. It is a proposal, not approval.
+
+2026-11-07 optimization follow-up: the [profiled research path](optimized-collection.md) now
+completes all ten generated huge-session stages in 1.37–1.51 s under the unchanged
+2 s deadline. Ordinary capture, atomicity and accounting checks pass; macOS/Linux
+gates pass. Historical failed timings remain valid for the old implementation.
+Sustained contention, actual UI latency, full publication and native/contracts
+work remain open. No production collector or policy approval is inferred.
