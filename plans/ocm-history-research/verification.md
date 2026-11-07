@@ -206,3 +206,100 @@ formatting, `git diff --check`, and unchanged tracked production/dependency/PRQ
 files. `plans/` remains untracked/unstaged as on entry; local `.zed/` design
 records remain ignored. No commit, binary, profile, private data or generated
 database was added to git.
+
+## Bounded collection continuation — 2026-11-07
+
+Added isolated `stage.go`/`stage_test.go`, a streaming sink in the research
+extractor, session-scoped V2 fork-boundary validation, and a fresh-worker bounded
+measurement route. All changed Go files are gofmt-clean. No production, PRQ,
+dependency or native-action implementation changed. The incoming edits in
+`real-data.md` were preserved. Results and remaining limits are recorded in
+[bounded evidence](bounded-results.md); the [proposal](proposal.md) consolidates
+contracts for review without asserting acceptance or native validation.
+
+Using Go 1.25.0, darwin/arm64, from the repository root:
+
+| Command | Result |
+| --- | --- |
+| `go test ./plans/ocm-history-research` | PASS |
+| `go test ./plans/ocm-history-research -run 'TestHistoryStage\|TestHistoryBoundedRouting'` | PASS; includes process-exit journal recovery |
+| `go test ./ocm/... ./cmd/ocm/...` | PASS |
+| `go vet ./...` | PASS |
+| `go test -race ./...` | PASS; all packages, new safety/crash tests included |
+| `make build` | PASS |
+| `go test -tags mock ./...` | PASS; includes OCM, research, PRQ and CLI packages |
+| `go build -tags mock ./cmd/prq ./cmd/ocm` | PASS |
+| Opt-in bounded scale, six shapes × three fresh processes | PASS, 58.705 s; correctness passes, huge-session performance target fails safely |
+
+The first repository mock run using the default Go cache failed setup because
+sandbox access to a cache entry was denied. Repeating with
+`GOCACHE=/private/tmp/ocm-history-20261106-tj193pol/go-build` passed. All final
+repository gates and final scale used that writable cache and
+`GOTOOLCHAIN=go1.25.0`. Builds printed nonfatal module stat-cache write denials;
+exit status was zero. No approval escalation was requested.
+
+The PRQ build constraints were already fixed on entry (`filter_test.go` and
+`wait_time_test.go` carry `!mock`); no further PRQ change was necessary. This
+supersedes the earlier repository-wide mock failure, not the historical record
+of that failure. Required mock OCM checks are covered by the passing full mock
+suite. No test needs live credentials or an installed native terminal application.
+
+Linux runtime/CI remains OPEN: local `docker version` cannot connect to
+`/Users/kimoofey/.docker/run/docker.sock`; no Docker daemon is running. No Linux
+runtime or new remote CI run was obtained, and no branch was pushed. Existing
+Ubuntu workflow configuration and Linux cross-compilation are not runtime proof.
+Native correction/migration/compaction/deletion evidence, archive-write contention,
+actual input/renderer latency, sustained writes, blocked-query cancellation and
+production publication/coordination remain open. Step 2 is still IN PROGRESS.
+
+Final Linux compile check passed:
+`GOOS=linux GOARCH=amd64 go test -c -o /private/tmp/ocm-history-bounded-linux.test ./plans/ocm-history-research`
+with the same Go toolchain/cache. This is compile-only evidence; the binary was
+not executed. Final `git diff --check`, changed-Go formatting, local links in
+updated research documents and all 18 raw measurement records pass validation.
+No source snapshot, generated database, binary or profile was added to git.
+
+## Docker Linux runtime verification — 2026-11-07
+
+Docker is running. A sandboxed socket probe returned permission denied; an
+approved Docker socket access succeeded (server 29.9.2). This supersedes the
+earlier Docker-unavailable observation. No automatic approval rejection occurred.
+
+Executed the current workspace with the repository mounted read-only at
+`/workspace` in `golang:1.25.0` (image manifest digest
+`sha256:5502b0e56fca23feba76dbc5387ba59c593c02ccc2f0f7355871ea9a0852cebe`).
+Environment: `GOTOOLCHAIN=local`, Go 1.25.0 **linux/arm64**, Linux aarch64.
+The disposable container downloaded dependencies; source and dependencies in the
+host workspace were not modified. Build outputs were kept in container `/tmp`.
+The complete container invocation exited **0**. [Raw output](linux-verification.txt).
+
+| Linux command | Result |
+| --- | --- |
+| `go vet ./...` | PASS |
+| `go test -race ./...` | PASS, all packages including research subprocess recovery tests |
+| `make build BIN=/tmp/ocm-step2-bin` | PASS; same Makefile targets with temporary output location |
+| `go test -tags mock ./...` | PASS, all packages including PRQ and research |
+| `go build -tags mock ./cmd/prq ./cmd/ocm` | PASS |
+
+Reproduce from the repository root (requires Docker daemon access):
+
+```sh
+docker run --rm \
+  --mount "type=bind,source=$PWD,target=/workspace,readonly" \
+  --workdir /workspace --env GOTOOLCHAIN=local golang:1.25.0 sh -euxc '
+  go version
+  uname -sm
+  go vet ./...
+  go test -race ./...
+  make build BIN=/tmp/ocm-step2-bin
+  go test -tags mock ./...
+  go build -tags mock ./cmd/prq ./cmd/ocm
+  '
+```
+
+This closes the missing **local Linux runtime** evidence. It does not claim
+hosted Ubuntu/amd64 CI passed for the current uncommitted changes, or that the
+opt-in scale measurements were repeated on Linux. The Docker image supplies
+neither live credentials nor native macOS applications. No native source was
+opened, discovered or deleted. No production code was changed. See the current
+[Step 2 closure review](step2-status.md) for remaining work.

@@ -123,6 +123,10 @@ func TestHistoryScaleWorker(t *testing.T) {
 	if err := source.QueryRow(`SELECT name FROM history_workload`).Scan(&marker); err != nil || marker != w.Name {
 		t.Fatal("worker requires its generated fixture marker")
 	}
+	if *historyBounded {
+		measureBounded(t, w, source)
+		return
+	}
 	result := scaleResult{Shape: w.Name, GoVersion: runtime.Version(), OS: runtime.GOOS, Arch: runtime.GOARCH, Sessions: w.Sessions}
 	if err := source.QueryRow(`SELECT sqlite_version()`).Scan(&result.SQLite); err != nil {
 		t.Fatal(err)

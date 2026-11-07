@@ -128,3 +128,33 @@ Still required: bounded collection/publication, changed/new-session refresh,
 sustained writer impact, blocked-lock cancellation, write-phase UI contention,
 end-to-end startup/input latency and accepted budgets. Identity, reconciliation,
 ordering, process recovery and other product contracts remain unresolved.
+
+## Native fork observation — 2026-11-07
+
+The maintainer reported creating a V2 fork and authorized checking/updating the
+private experimental copy. A new SQLite online backup was made from the live
+source opened mode=ro, with DELETE journal finalization on the destination only.
+Private snapshot: `/private/tmp/ocm-fork-20261107-folkjz5m/snapshot.db`;
+directory/file permissions 0700/0600; quick_check returned ok. Earlier snapshots
+and their measurements remain historical and were not overwritten.
+
+This snapshot contains one V2 fork with an existing parent. Its six assistant
+projections consist of five timestamped before fork creation and one at/after
+creation, with no null timestamps. All five excluded projections have positive
+recorded cost. There are no usage-recorded events for this fork.
+
+An ephemeral Go test invoked the existing experiment extractor for the fork's
+session scope. It returned one eligible item, complete=true and no diagnostics.
+Its cost and UTC aggregate total matched an independent SQL sum of assistant
+projections at/after the fork boundary; no pre-fork item appeared in extraction.
+No identifiers, amounts or conversation content were printed or retained here.
+The temporary test was removed after execution; the database remains private
+outside the repository. Production code and persistent fixtures are unchanged.
+
+Command: Go 1.25.0, isolated temporary GOCACHE,
+`go test -v ./plans/ocm-history-research -run '^TestHistoryForkObservationTemporary$' -count=1`:
+PASS, exit 0. This validates the expected V2 exclusion on one real fork, not a
+supported-version range, event/compaction lifecycle, migration or deletion
+recovery contract. The new snapshot supersedes the earlier no-fork sample for
+future fork observations; earlier performance numbers retain their original
+snapshot scope. No native OpenCode command or live-source write was invoked.

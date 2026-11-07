@@ -164,3 +164,12 @@ across `plans/README.md`, steps 2–5, this record and the evidence README. Pres
 the earlier test/benchmark evidence as historical results. No Go files changed;
 runtime tests are not required for this revision. On the next code change, run
 all verification gates in `plans/README.md` using Go 1.25.0.
+
+## Bounded collection continuation — 2026-11-07
+
+[Bounded collection evidence](bounded-results.md) now measures separate session
+snapshots and atomic disk staging across 18 fresh generated workers. Multi-session
+100k reads fit the proposed per-reader bound; huge-session staging exhausts the
+2 s deadline and safely defers. Completion/liveness and other gate C evidence
+remain open. Review the consolidated [implementation contract proposal](proposal.md)
+before freezing interfaces or starting step 3. It is a proposal, not approval.

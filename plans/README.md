@@ -188,3 +188,16 @@ After each milestone, update its row and the roadmap/design records with actual
 decisions and evidence. Refresh downstream plans against those decisions before
 dispatching their executors. Recommendations below never override the approved
 step 2 contract.
+
+2026-11-07: [bounded session/staging evidence](ocm-history-research/bounded-results.md)
+and a consolidated [contract proposal](ocm-history-research/proposal.md) are now
+available for review. Ordinary per-session readers fit the proposed deadline;
+huge sessions safely defer and need a completion strategy. All required macOS
+normal/mock/vet/race/build gates pass; Linux runtime and remaining performance/
+native evidence stay open. No milestone or policy approval is inferred.
+
+2026-11-07 closure review: Docker Linux/arm64 runtime vet, race, normal builds,
+repository mock tests and mock builds now pass. Hosted CI for current changes
+remains unverified. The [current closure checklist](ocm-history-research/step2-status.md) separates resolved
+items from huge-session completion, remaining performance/native evidence,
+actionable recovery and final contract decisions. Step 2 remains IN PROGRESS.

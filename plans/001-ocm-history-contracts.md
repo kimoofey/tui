@@ -306,3 +306,9 @@ missing, or measured session snapshots cannot meet budgets. Report the evidence
 and revise the design; do not replace the requirement with lifetime estimates.
 Future schema/accounting changes must rerun this evidence pack before changing
 archive meaning; keep its fixtures as long-term compatibility oracles.
+
+2026-11-07 closure review: Docker Linux/arm64 runtime vet, race, normal builds,
+repository mock tests and mock builds now pass. Hosted CI for current changes
+remains unverified. The [current closure checklist](ocm-history-research/step2-status.md) separates resolved
+items from huge-session completion, remaining performance/native evidence,
+actionable recovery and final contract decisions. Step 2 remains IN PROGRESS.

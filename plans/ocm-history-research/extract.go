@@ -35,7 +35,8 @@ type extractOptions struct {
 	Session       string // empty selects all sessions for full-import measurements
 	AfterSnapshot func()
 	AfterItem     func(int)
-	MaxRows       int // diagnostic experiment: a bounded read is never complete
+	MaxRows       int               // diagnostic experiment: a bounded read is never complete
+	Sink          func(Usage) error // isolated disk-stage experiment; Items stays empty and Complete stays false
 }
 
 var errBounded = errors.New("bounded extraction is not a full snapshot")
@@ -87,7 +88,13 @@ func extract(ctx context.Context, db *sql.DB, opts extractOptions) (_ *Observati
 	}
 	if o.Schema == "session_v2" {
 		var invalid int
-		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM session_v2 WHERE fork_session_id IS NOT NULL AND typeof(time_created)!='integer'`).Scan(&invalid); err != nil {
+		q := `SELECT count(*) FROM session_v2 WHERE fork_session_id IS NOT NULL AND typeof(time_created)!='integer'`
+		var args []any
+		if opts.Session != "" {
+			q += ` AND id=?`
+			args = append(args, opts.Session)
+		}
+		if err = tx.QueryRowContext(ctx, q, args...).Scan(&invalid); err != nil {
 			return nil, err
 		}
 		if invalid != 0 {
@@ -238,7 +245,13 @@ func extract(ctx context.Context, db *sql.DB, opts extractOptions) (_ *Observati
 		if _, exists := o.Items[key]; exists {
 			return nil, errors.New("duplicate native usage identity")
 		}
-		o.Items[key] = u
+		if opts.Sink != nil {
+			if err = opts.Sink(u); err != nil {
+				return nil, err
+			}
+		} else {
+			o.Items[key] = u
+		}
 	}
 	if err = rows.Err(); err != nil {
 		return nil, err
@@ -252,7 +265,8 @@ func extract(ctx context.Context, db *sql.DB, opts extractOptions) (_ *Observati
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
-	o.Complete = true
+	// A streamed observation is metadata only, never publishable by writeCandidate.
+	o.Complete = opts.Sink == nil
 	return o, nil
 }
 func number(raw json.RawMessage) *float64 {

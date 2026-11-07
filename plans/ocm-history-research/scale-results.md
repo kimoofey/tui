@@ -203,3 +203,12 @@ session collection and correction reconciliation through publication, sustained
 writer/checkpoint impact and blocked-lock cancellation, final archive/scheduler
 contracts, supported native semantics, and accepted numeric budgets. No native
 deletion/recovery mechanism or cross-process coordinator was exercised here.
+
+## Bounded collection continuation — 2026-11-07
+
+[Bounded collection evidence](bounded-results.md) now measures separate session
+snapshots and atomic disk staging across 18 fresh generated workers. Multi-session
+100k reads fit the proposed per-reader bound; huge-session staging exhausts the
+2 s deadline and safely defers. Completion/liveness and other gate C evidence
+remain open. Review the consolidated [implementation contract proposal](proposal.md)
+before freezing interfaces or starting step 3. It is a proposal, not approval.

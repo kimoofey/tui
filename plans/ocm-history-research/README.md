@@ -148,3 +148,18 @@ See [decisions](decisions.md) for the sequence and remaining gates.
 See [verification.md](verification.md) for command results and the existing PRQ
 mock-test failure. Linux CI and manual macOS terminal execution were not run.
 No source data, generated binaries, or profiles are included in this pack.
+
+## Bounded collection continuation — 2026-11-07
+
+[Bounded collection evidence](bounded-results.md) now measures separate session
+snapshots and atomic disk staging across 18 fresh generated workers. Multi-session
+100k reads fit the proposed per-reader bound; huge-session staging exhausts the
+2 s deadline and safely defers. Completion/liveness and other gate C evidence
+remain open. Review the consolidated [implementation contract proposal](proposal.md)
+before freezing interfaces or starting step 3. It is a proposal, not approval.
+
+2026-11-07 closure review: Docker Linux/arm64 runtime vet, race, normal builds,
+repository mock tests and mock builds now pass. Hosted CI for current changes
+remains unverified. The [current closure checklist](step2-status.md) separates resolved
+items from huge-session completion, remaining performance/native evidence,
+actionable recovery and final contract decisions. Step 2 remains IN PROGRESS.
