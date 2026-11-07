@@ -1,0 +1,32 @@
++zsh:5> go version
+go version go1.25.0 darwin/arm64
++zsh:6> go vet ./...
++zsh:7> go test -race ./...
+ok  	github.com/kimoofey/tui/cmd/ocm	(cached)
+ok  	github.com/kimoofey/tui/cmd/prq	(cached)
+ok  	github.com/kimoofey/tui/internal/terminal	(cached)
+ok  	github.com/kimoofey/tui/internal/ui	(cached)
+ok  	github.com/kimoofey/tui/ocm	(cached)
+ok  	github.com/kimoofey/tui/ocm/service	(cached)
+?   	github.com/kimoofey/tui/ocm/session	[no test files]
+ok  	github.com/kimoofey/tui/ocm/sources/opencode	(cached)
+ok  	github.com/kimoofey/tui/plans/ocm-history-research	8.142s
+ok  	github.com/kimoofey/tui/prq	(cached)
++zsh:8> make build
+go build -o bin/prq ./cmd/prq
+go: writing stat cache: open /Users/kimoofey/go/pkg/mod/cache/download/github.com/kimoofey/tui/@v/v0.0.0-20261107212518-252b283dea73.info9779099.tmp: operation not permitted
+go build -o bin/ocm ./cmd/ocm
+go: writing stat cache: open /Users/kimoofey/go/pkg/mod/cache/download/github.com/kimoofey/tui/@v/v0.0.0-20261107212518-252b283dea73.info52345321.tmp: operation not permitted
++zsh:9> go test -tags mock ./...
+ok  	github.com/kimoofey/tui/cmd/ocm	(cached)
+ok  	github.com/kimoofey/tui/cmd/prq	(cached)
+ok  	github.com/kimoofey/tui/internal/terminal	(cached)
+ok  	github.com/kimoofey/tui/internal/ui	(cached)
+ok  	github.com/kimoofey/tui/ocm	(cached)
+ok  	github.com/kimoofey/tui/ocm/service	(cached)
+?   	github.com/kimoofey/tui/ocm/session	[no test files]
+ok  	github.com/kimoofey/tui/ocm/sources/opencode	(cached)
+ok  	github.com/kimoofey/tui/plans/ocm-history-research	1.512s
+ok  	github.com/kimoofey/tui/prq	(cached)
++zsh:10> go build -tags mock ./cmd/prq ./cmd/ocm
+go: writing stat cache: open /Users/kimoofey/go/pkg/mod/cache/download/github.com/kimoofey/tui/@v/v0.0.0-20261107212518-252b283dea73.info770063567.tmp: operation not permitted

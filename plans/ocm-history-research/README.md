@@ -20,6 +20,18 @@ imports, memory, cancellation, controlled writer/checkpoint and headless browser
 results are recorded. Full-source 100k multi-session reads miss the proposed
 reader budget; bounded scheduling/staging and remaining contracts still gate C/D.
 
+## Gate C continuation — 2026-11-07
+
+The [full pipeline and responsiveness report](gatec-measurements.md) records the
+next four research tasks: bounded inventory/capture/reconciliation/per-session
+publication; import/refresh/correction matrix; actual program/input/renderer
+contention through archive writes and sustained synthetic source writes; blocked
+wait cancellation and heap/RSS/disk capacity measurements. A near-64 MiB payload
+probe covers initial and populated-archive replacement, plus cap rejection.
+All code remains isolated in this package. Scope, numeric budgets, scheduler
+semantics and resource-reserve decisions remain unapproved; Step 2 stays open.
+See [current closure status](step2-status.md) before choosing the next increment.
+
 ## Reproduce
 
 From the repository root:

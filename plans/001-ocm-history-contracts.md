@@ -319,3 +319,13 @@ completes all ten generated huge-session stages in 1.37–1.51 s under the uncha
 gates pass. Historical failed timings remain valid for the old implementation.
 Sustained contention, actual UI latency, full publication and native/contracts
 work remain open. No production collector or policy approval is inferred.
+
+2026-11-07 Gate C continuation: [full pipeline and responsiveness research](ocm-history-research/gatec-measurements.md)
+implements the next four measurement tasks without production wiring. Review
+measured import/refresh/correction distributions, write-phase input/renderer and
+sustained synthetic pressure, blocked waits and near-capacity disk overhead.
+Explicit decisions are still needed for supported dimensions, numeric budgets,
+scheduler boundary semantics, memory evidence and disk reserve. This is evidence
+for Gate C, not accepted policy or a Step 2 exit declaration. Native accounting,
+deletion/recovery, identity and exact interface/schema work remain gated as in
+[the closure status](ocm-history-research/step2-status.md).

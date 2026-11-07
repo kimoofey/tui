@@ -208,3 +208,12 @@ completes all ten generated huge-session stages in 1.37–1.51 s under the uncha
 gates pass. Historical failed timings remain valid for the old implementation.
 Sustained contention, actual UI latency, full publication and native/contracts
 work remain open. No production collector or policy approval is inferred.
+
+
+2026-11-07 Gate C continuation: [pipeline and responsiveness measurements](ocm-history-research/gatec-measurements.md)
+add bounded inventory, atomic per-session publication/reconciliation, full import
+and refresh/correction scenarios, actual input/renderer output during archive
+writes, sustained synthetic writer/checkpoint pressure, blocked waits and
+near-capacity disk evidence. Research-only; support/resource/budget decisions
+remain unapproved. Native tracing is the next independent executable increment;
+steps 3–5 remain gated by the [closure status](ocm-history-research/step2-status.md).

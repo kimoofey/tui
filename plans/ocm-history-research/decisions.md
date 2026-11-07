@@ -180,3 +180,12 @@ completes all ten generated huge-session stages in 1.37–1.51 s under the uncha
 gates pass. Historical failed timings remain valid for the old implementation.
 Sustained contention, actual UI latency, full publication and native/contracts
 work remain open. No production collector or policy approval is inferred.
+
+2026-11-07 Gate C continuation: [the full research pipeline report](gatec-measurements.md)
+records bounded inventory through atomic per-session publication, refresh and
+correction scenarios, actual input/renderer output through archive writes,
+sustained synthetic writing/checkpoint pressure, blocked waits and near-capacity
+initial/replacement resource observations. These are measurements, not new
+accepted decisions. Supported dimensions, numeric budgets, cooperative scheduler
+semantics, disk reserve and the interpretation of sampled heap/RSS still need
+explicit acceptance. Native semantic/identity/recovery contracts remain open.

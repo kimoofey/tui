@@ -345,3 +345,45 @@ and [raw bounded results](optimized-bounded-results.txt). All changed Go is
 gofmt-clean. Binary profiles and generated databases stay outside git. Native,
 contention/publication and approved-contract gates remain open; improved fixture
 performance alone does not complete Step 2.
+
+## Gate C pipeline / UI / resource continuation — 2026-11-07
+
+Research against `252b283` plus this increment; all Go changes are confined to
+`plans/ocm-history-research/`. The [report](gatec-measurements.md) documents
+scope, reproduction, final measurement tables and limitations. No production,
+dependency, native executable or private-source changes.
+
+Final local gates use `GOTOOLCHAIN=go1.25.0` and
+`GOCACHE=/private/tmp/ocm-gatec-cache`. The ordinary shared build cache was
+sandbox-restricted, so the writable temporary cache was used instead. All pass:
+`go vet ./...`, `go test -race ./...`, `make build`,
+`go test -tags mock ./...`, `go build -tags mock ./cmd/prq ./cmd/ocm`.
+[Raw macOS output](gatec-macos-verification.txt). Builds emitted nonfatal module
+stat-cache permission warnings; both build invocations exited 0. Default focused
+research tests also pass. Changed Go files are gofmt-formatted.
+
+The same five repository gates pass in a disposable Docker `golang:1.25.0`
+container, Go 1.25.0 linux/arm64, with source mounted read-only and build outputs
+in container `/tmp`. The Docker socket required an approved sandbox escalation;
+no automatic approval rejection occurred. The container used `--network=none`,
+`GOTOOLCHAIN=local` and `GOPROXY=file:///seed`, with the host module-download cache
+mounted read-only as `/seed`. No network dependency fetch or host source mutation
+was required. [Raw Linux output](gatec-linux-verification.txt). Both complete
+verification invocations exited 0. Linux runtime checks include the actual
+program/input/renderer default test and SQLite quota/cancellation tests.
+
+The full-pipeline run occurs after an initial macOS/Linux verification, with no
+other build/test/profiling command running concurrently. Final gates were repeated
+after the capacity-cardinality extension and explicit TrueColor assertion; the
+separate colored-UI run follows those gates without concurrent verification. Six shapes × five fresh worker
+processes; [raw results](gatec-results.txt). The separate near-capacity probe runs
+shared-label and distinct-model shapes five times each; [raw capacity results](gatec-capacity-results.txt). Its longer diagnostic
+deadline measures capacity only, not the 2 s exceptional-reader acceptance.
+Generation warms filesystem caches; fresh processes are not cold-I/O evidence.
+The [colored-UI output](gatec-colored-ui-results.txt) separately records TrueColor
+RGB bytes observed in baseline and concurrent renderer output. Earlier full-pipeline
+UI data used the non-terminal sink's no-color profile and is labeled accordingly.
+The full-pipeline artifact contains 30 workers (256.264 s), colored-UI artifact
+30 workers (86.607 s), and capacity artifact ten observations in five repetitions
+(91.596 s); all opt-in invocations exited 0. Scale measurements remain macOS-only. No hosted Ubuntu/amd64 CI result is claimed;
+no branch push or workflow dispatch was performed. Step 2 remains IN PROGRESS.

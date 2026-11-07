@@ -225,3 +225,15 @@ completes all ten generated huge-session stages in 1.37–1.51 s under the uncha
 gates pass. Historical failed timings remain valid for the old implementation.
 Sustained contention, actual UI latency, full publication and native/contracts
 work remain open. No production collector or policy approval is inferred.
+
+
+2026-11-07 Gate C continuation: the [full research measurements](gatec-measurements.md)
+now include inventory through per-session publication, unchanged/new/changed/old
+correction refresh, actual input/event-loop/renderer output with accepted archive
+write phase coverage, sustained synthetic writer/checkpoint pressure, blocked
+wait cancellation and near-capacity initial/replacement disk overhead. The
+scheduler checks 25 ms / ten sessions between completed sessions, not as a hard
+batch ceiling. Sampled heap/RSS does not establish exact peak-live heap, and
+payload bytes alone do not bound disk demand. Review the report's numeric and
+scope decisions before accepting this budget table. These measurements do not
+approve this proposal, native semantics or production interfaces/schema.

@@ -1,0 +1,42 @@
+=== RUN   TestHistoryGateCapacity
+=== RUN   TestHistoryGateCapacity/shared-labels
+HISTORY_CAPACITY {"Shape":"shared-labels","Rows":19168,"AccountingPayloadBytes":67107168,"StageNS":1231251792,"PublishNS":1332193208,"ReplacementStageNS":1175358375,"ReplacementPublishNS":1929467625,"ExistingArchiveBytesBeforeReplacement":179490816,"Resources":{"PeakCombinedDiskBytes":449827640,"SampledHeapIncrease":6323040,"SampledHeapInuseIncrease":6471680,"ArchiveBytes":179490816,"ArchiveWALBytes":180579632,"ArchiveJournalBytes":0,"StageBytes":89743360,"StageJournalBytes":13832,"StageWALBytes":0}}
+=== RUN   TestHistoryGateCapacity/distinct-models
+HISTORY_CAPACITY {"Shape":"distinct-models","Rows":19168,"AccountingPayloadBytes":67107168,"StageNS":1180631834,"PublishNS":2466222959,"ReplacementStageNS":1203231875,"ReplacementPublishNS":3342634542,"ExistingArchiveBytesBeforeReplacement":269406208,"Resources":{"PeakCombinedDiskBytes":630185272,"SampledHeapIncrease":137704672,"SampledHeapInuseIncrease":138092544,"ArchiveBytes":269406208,"ArchiveWALBytes":271021872,"ArchiveJournalBytes":0,"StageBytes":89743360,"StageJournalBytes":13832,"StageWALBytes":0}}
+--- PASS: TestHistoryGateCapacity (18.15s)
+    --- PASS: TestHistoryGateCapacity/shared-labels (7.70s)
+    --- PASS: TestHistoryGateCapacity/distinct-models (10.45s)
+=== RUN   TestHistoryGateCapacity
+=== RUN   TestHistoryGateCapacity/shared-labels
+HISTORY_CAPACITY {"Shape":"shared-labels","Rows":19168,"AccountingPayloadBytes":67107168,"StageNS":1183900917,"PublishNS":1341535625,"ReplacementStageNS":1183733167,"ReplacementPublishNS":1945712125,"ExistingArchiveBytesBeforeReplacement":179490816,"Resources":{"PeakCombinedDiskBytes":449827640,"SampledHeapIncrease":6171080,"SampledHeapInuseIncrease":6381568,"ArchiveBytes":179490816,"ArchiveWALBytes":180579632,"ArchiveJournalBytes":0,"StageBytes":89743360,"StageJournalBytes":13832,"StageWALBytes":0}}
+=== RUN   TestHistoryGateCapacity/distinct-models
+HISTORY_CAPACITY {"Shape":"distinct-models","Rows":19168,"AccountingPayloadBytes":67107168,"StageNS":1175211875,"PublishNS":2459965333,"ReplacementStageNS":1230080292,"ReplacementPublishNS":3326487792,"ExistingArchiveBytesBeforeReplacement":269406208,"Resources":{"PeakCombinedDiskBytes":630185272,"SampledHeapIncrease":137660688,"SampledHeapInuseIncrease":138051584,"ArchiveBytes":269406208,"ArchiveWALBytes":271021872,"ArchiveJournalBytes":0,"StageBytes":89743360,"StageJournalBytes":13832,"StageWALBytes":0}}
+--- PASS: TestHistoryGateCapacity (18.03s)
+    --- PASS: TestHistoryGateCapacity/shared-labels (7.58s)
+    --- PASS: TestHistoryGateCapacity/distinct-models (10.44s)
+=== RUN   TestHistoryGateCapacity
+=== RUN   TestHistoryGateCapacity/shared-labels
+HISTORY_CAPACITY {"Shape":"shared-labels","Rows":19168,"AccountingPayloadBytes":67107168,"StageNS":1155061291,"PublishNS":1292125083,"ReplacementStageNS":1193447333,"ReplacementPublishNS":1933944833,"ExistingArchiveBytesBeforeReplacement":179490816,"Resources":{"PeakCombinedDiskBytes":449827640,"SampledHeapIncrease":6066880,"SampledHeapInuseIncrease":6307840,"ArchiveBytes":179490816,"ArchiveWALBytes":180579632,"ArchiveJournalBytes":0,"StageBytes":89743360,"StageJournalBytes":13832,"StageWALBytes":0}}
+=== RUN   TestHistoryGateCapacity/distinct-models
+HISTORY_CAPACITY {"Shape":"distinct-models","Rows":19168,"AccountingPayloadBytes":67107168,"StageNS":1185575791,"PublishNS":2460597833,"ReplacementStageNS":1200944458,"ReplacementPublishNS":3331055625,"ExistingArchiveBytesBeforeReplacement":269336576,"Resources":{"PeakCombinedDiskBytes":630045600,"SampledHeapIncrease":137806984,"SampledHeapInuseIncrease":138166272,"ArchiveBytes":269336576,"ArchiveWALBytes":270951832,"ArchiveJournalBytes":0,"StageBytes":89743360,"StageJournalBytes":13832,"StageWALBytes":0}}
+--- PASS: TestHistoryGateCapacity (17.89s)
+    --- PASS: TestHistoryGateCapacity/shared-labels (7.48s)
+    --- PASS: TestHistoryGateCapacity/distinct-models (10.41s)
+=== RUN   TestHistoryGateCapacity
+=== RUN   TestHistoryGateCapacity/shared-labels
+HISTORY_CAPACITY {"Shape":"shared-labels","Rows":19168,"AccountingPayloadBytes":67107168,"StageNS":1155295625,"PublishNS":1301457000,"ReplacementStageNS":1184068375,"ReplacementPublishNS":1951631042,"ExistingArchiveBytesBeforeReplacement":179490816,"Resources":{"PeakCombinedDiskBytes":449827640,"SampledHeapIncrease":6320824,"SampledHeapInuseIncrease":6348800,"ArchiveBytes":179490816,"ArchiveWALBytes":180579632,"ArchiveJournalBytes":0,"StageBytes":89743360,"StageJournalBytes":13832,"StageWALBytes":0}}
+=== RUN   TestHistoryGateCapacity/distinct-models
+HISTORY_CAPACITY {"Shape":"distinct-models","Rows":19168,"AccountingPayloadBytes":67107168,"StageNS":1182165667,"PublishNS":2496029750,"ReplacementStageNS":1216061709,"ReplacementPublishNS":3343995416,"ExistingArchiveBytesBeforeReplacement":269307904,"Resources":{"PeakCombinedDiskBytes":630113808,"SampledHeapIncrease":134481016,"SampledHeapInuseIncrease":134815744,"ArchiveBytes":269398016,"ArchiveWALBytes":270972432,"ArchiveJournalBytes":0,"StageBytes":89743360,"StageJournalBytes":13832,"StageWALBytes":0}}
+--- PASS: TestHistoryGateCapacity (18.04s)
+    --- PASS: TestHistoryGateCapacity/shared-labels (7.52s)
+    --- PASS: TestHistoryGateCapacity/distinct-models (10.52s)
+=== RUN   TestHistoryGateCapacity
+=== RUN   TestHistoryGateCapacity/shared-labels
+HISTORY_CAPACITY {"Shape":"shared-labels","Rows":19168,"AccountingPayloadBytes":67107168,"StageNS":1187208875,"PublishNS":1365143958,"ReplacementStageNS":1224131917,"ReplacementPublishNS":1972869834,"ExistingArchiveBytesBeforeReplacement":179490816,"Resources":{"PeakCombinedDiskBytes":449827640,"SampledHeapIncrease":5957216,"SampledHeapInuseIncrease":6127616,"ArchiveBytes":179490816,"ArchiveWALBytes":180579632,"ArchiveJournalBytes":0,"StageBytes":89743360,"StageJournalBytes":13832,"StageWALBytes":0}}
+=== RUN   TestHistoryGateCapacity/distinct-models
+HISTORY_CAPACITY {"Shape":"distinct-models","Rows":19168,"AccountingPayloadBytes":67107168,"StageNS":1177049208,"PublishNS":2564167583,"ReplacementStageNS":1291016375,"ReplacementPublishNS":4039656792,"ExistingArchiveBytesBeforeReplacement":269279232,"Resources":{"PeakCombinedDiskBytes":630146672,"SampledHeapIncrease":134052840,"SampledHeapInuseIncrease":134471680,"ArchiveBytes":269414400,"ArchiveWALBytes":270988912,"ArchiveJournalBytes":0,"StageBytes":89743360,"StageJournalBytes":13832,"StageWALBytes":0}}
+--- PASS: TestHistoryGateCapacity (19.09s)
+    --- PASS: TestHistoryGateCapacity/shared-labels (7.66s)
+    --- PASS: TestHistoryGateCapacity/distinct-models (11.44s)
+PASS
+ok  	github.com/kimoofey/tui/plans/ocm-history-research	91.596s
