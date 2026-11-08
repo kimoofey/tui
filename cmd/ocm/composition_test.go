@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/kimoofey/tui/ocm/history"
 	"github.com/kimoofey/tui/ocm/service"
 	"github.com/kimoofey/tui/ocm/session"
+	"path/filepath"
 )
 
 type ownedSource struct {
@@ -55,6 +57,50 @@ func TestSourceOwnership(t *testing.T) {
 			if source.closed != 1 || called == source.empty || (code == 1) != (mode == "program failure") {
 				t.Fatalf("cleanup: closed=%d program=%v code=%d", source.closed, called, code)
 			}
+		})
+	}
+}
+
+func TestDisabledHistoryDoesNotOpenArchive(t *testing.T) {
+	source := &ownedSource{}
+	opts, err := loadHistorySource(source, nil, service.LoadOptions{}, false, func() (*history.Store, error) { panic("disabled archive factory called") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.Close()
+}
+
+func TestHistoryStartupCleanup(t *testing.T) {
+	for _, mode := range []string{"archive failure", "load failure", "normal"} {
+		t.Run(mode, func(t *testing.T) {
+			source := &ownedSource{fail: mode == "load failure"}
+			path := filepath.Join(t.TempDir(), "history.sqlite3")
+			opts, err := loadHistorySource(source, nil, service.LoadOptions{}, true, func() (*history.Store, error) {
+				if mode == "archive failure" {
+					return nil, errors.New("fixture archive failure")
+				}
+				return history.Open(path)
+			})
+			if mode != "normal" {
+				if err == nil || source.closed != 1 {
+					t.Fatalf("cleanup: %v %d", err, source.closed)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if opts.Capabilities.Delete {
+					t.Fatal("unguarded delete")
+				}
+				if err = opts.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			archive, err := history.Open(path)
+			if err != nil {
+				t.Fatal("archive lock leaked:", err)
+			}
+			archive.Close()
 		})
 	}
 }

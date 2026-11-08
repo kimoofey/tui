@@ -95,3 +95,55 @@ is available only for the default `opencode.db` in that directory. It is
 disabled for custom and channel-specific database files because legacy diff
 files do not identify which database owns them. Missing legacy diff directories
 require no cleanup.
+
+### History storage (implementation preview)
+
+History is disabled by default. The storage/collection milestone is implemented;
+History navigation and guarded deletion are still pending. Do not release or rely
+on the enabled feature until those milestones are complete.
+
+To opt in, add this to `$XDG_CONFIG_HOME/ocm/config.yaml` (or
+`~/.config/ocm/config.yaml` when XDG_CONFIG_HOME is empty or unset) and restart:
+
+```yaml
+history:
+  enabled: true
+```
+
+Unknown configuration fields, malformed YAML and multiple documents are errors.
+Help/version bypass configuration. Mock builds use their deterministic browser data
+and never read user history configuration or archives.
+
+Enabled startup and successful explicit browser reloads request background
+collection. Requests coalesce, sessions are captured sequentially, and there is no
+periodic collection. Browsing/resume remain available during capture. Collection
+errors appear in the browser status. **Deletion is unavailable while history is
+enabled in this intermediate milestone**; the service also blocks direct requests.
+Disabled operation keeps the existing deletion and browsing behavior and performs
+no history extraction, file access, locking or directory creation.
+
+The private archive is `$XDG_DATA_HOME/ocm/history.sqlite3` (fallback
+`~/.local/share/ocm/history.sqlite3`). It stores native accounting identities,
+recorded USD costs, provider/model names, five independent optional token counters,
+usage timestamps and capture/quality status. It stores no conversation titles,
+conversation paths, prompts, responses, tool arguments or raw JSON. One canonical
+source database path and authoritative schema family bind on the first successful
+capture. A different path/schema blocks collection, preserving saved usage; return
+to the original source or disable history accepting capture gaps. Same-path source
+replacement/ID reuse and arbitrary source copies are not reliably detected.
+A lifetime advisory lock permits only one enabled instance per archive.
+
+Accounting uses approximate recorded USD, summed before formatting, and UTC days.
+Missing/invalid fields stay unknown; recorded zero remains zero. Missing timestamps
+are unbucketed in all-time totals and excluded from dated ranges. V1 includes
+recorded assistant usage, including copied fork messages:
+“Approximate: V1 forked sessions may include copied usage.” V2 retains fork exclusion
+and compaction-event accounting. Source-only `--cost-period` behavior is unchanged.
+
+Repeated captures are idempotent. Stable identities permit corrections, including
+lower costs and changed day/model attribution. If any old identity disappears or a
+known accounting field becomes unknown, the entire previous session snapshot is
+retained as stale; other sessions continue collecting. This conservative rule can
+stop tracking later usage after pruning or compaction changes identities. Missing
+sessions and source/native maintenance never remove archive rows. Coverage includes
+only successfully observed usage; external deletion before capture is unrecoverable.

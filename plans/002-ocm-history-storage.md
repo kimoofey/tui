@@ -1,6 +1,6 @@
 # Plan 002: implement extraction and the opt-in archive
 
-Status: TODO. Planned 2026-11-08 at `f234344`. Priority P1; effort M–L; risk medium.
+Status: IMPLEMENTED locally on 2026-11-08. Planned at `f234344`. Priority P1; effort M–L; risk medium.
 Depends on the DECIDED contract in `001-ocm-history-contracts.md`, not old research
 gates. Read that contract and root/OCM AGENTS in full. Implement production code.
 
@@ -126,3 +126,65 @@ source writes are necessary, or supported fixture accounting cannot be reconcile
 Ordinary naming/DDL/UI status plumbing and correcting failing tests are executor
 work, not approval gates. Large-session optimization and arbitrary migration/copy
 support are deferred; implement explicit failure/status instead.
+
+## Implementation evidence (2026-11-08)
+
+Production APIs now in place:
+
+- `session.HistorySource`: `HistorySessions(ctx)` and `CaptureHistory(ctx, id)`;
+  `Observation` explicitly distinguishes present/absent and contains accounting-only
+  `Usage` with nullable fields and a canonical `HistoryBinding`.
+- `history.ReadConfig/LoadConfig`, `ConfigPath`, `ArchivePath`: strict YAML and XDG
+  fallbacks. Real startup parses once; help/version bypass it; mock startup never
+  reads user history configuration or files.
+- `history.Open`, `Store.Capture`, `RecordFailure`, `Query`, `Close`: SQLite v1,
+  `metadata(policy,path,schema)`, `sessions(id,captured,status,v1)`, and
+  `usage(session_id,kind,id,timestamp,cost,provider,model,input,output,reasoning,
+  cache_read,cache_write)`. Primary key `(session_id,kind,id)`, foreign key to
+  sessions, timestamp index, WAL/FULL, private files and lifetime flock. Connection
+  pragmas are also in the DSN so cancellation/reconnection preserves them.
+- `history.Range` uses half-open milliseconds; nil selects all time. `Report`
+  contains daily/model SQL GROUP BY totals, unknown/unbucketed counts, independent
+  overflow-checked token totals, stored session status and range-specific V1 quality,
+  all in one read transaction.
+- `Service.EnableHistory`, `RequestHistory`, `HistoryStatus`, `WaitHistory`,
+  `CloseHistory`: sequential worker, capacity-one pending sweep, configurable test
+  timeout (30s default), per-session serializer, cancellation/join. Successful Load
+  schedules collection. Composition owns join/source/archive cleanup on all paths.
+  UI initialization preserves background-color detection and receives completion
+  errors through commands/messages. Enabled delete is unavailable and service-blocked.
+
+New fixture tests cover repeated captures; corrections down to zero and day/model
+changes; missing identities/known-field regression freezing the full snapshot;
+absent and empty sessions; cancellation and forced SQL write failure; retained V1
+quality after reopening; binding rejection; unknown fields/zero/overflow; invalid
+archives/versions/policies; private database/WAL/SHM/lock permissions; cross-process
+lock contention and reacquisition. Adapter fixtures assert V1 7 recorded versus 4
+actual-call reference and V2 6.5/3/0, hidden children, malformed eligibility,
+duplicate identities, unknown counters, cancellation and query failure. Worker
+barriers prove browser loading continues during capture, refresh coalescing,
+independent session failures, timeout continuation and cancellation/join. Composition
+covers disabled factory non-use and enabled startup/cleanup failures; subprocess
+checks prove help/version bypass malformed config. Normal/mock UI tests execute
+history commands and feed completion messages through Update.
+
+Local verification with Go 1.25.0:
+
+- `go test ./ocm/... ./cmd/ocm/...`: PASS.
+- `go test -tags mock ./ocm/... ./cmd/ocm/...`: PASS.
+- `go vet ./...`: PASS.
+- `go test -race ./...`: PASS.
+- `make build`: PASS.
+- `go test -tags mock ./...`: PASS.
+- `go build -tags mock ./cmd/prq ./cmd/ocm`: PASS.
+
+Used `GOTOOLCHAIN=go1.25.0 GOCACHE=/tmp/tui-go-cache` because the sandbox denied
+writes to the default Go build cache. Build commands emitted nonfatal module
+metadata-cache permission warnings and exited 0. No live user databases, native
+actions or credentials used. Hosted/Linux CI has not been run; it remains a
+repository workflow requirement. No dependencies changed or commits created.
+
+Next: plan 003 must replace the enabled-delete blocker with scope discovery and
+capture-before-action under the existing serializer. Plan 004 must supply History
+navigation, independent archive/source composition and archive-only startup. This
+intermediate feature remains disabled by default and is not release-ready.

@@ -17,6 +17,7 @@ import (
 )
 
 func TestLoadData_V2CustomStorage(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dataDir := filepath.Join(t.TempDir(), "data with spaces", "opencode")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		t.Fatal(err)

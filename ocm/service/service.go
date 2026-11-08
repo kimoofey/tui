@@ -10,6 +10,7 @@ import (
 
 type Launcher interface{ Launch(terminal.Command) error }
 type Service struct {
+	history  *historyWorker
 	source   session.Source
 	launcher Launcher
 	now      func() time.Time
@@ -42,6 +43,9 @@ func (s *Service) Capabilities() Capabilities {
 	c := Capabilities{RootFilter: s.source.Info().RootFilter}
 	_, c.Resume = s.source.(session.Resumer)
 	_, c.Delete = s.source.(session.Deleter)
+	if s.history != nil {
+		c.Delete = false
+	}
 	_, c.PeriodCost = s.source.(session.PeriodCoster)
 	_, c.Metrics = s.source.(session.StorageMetrics)
 	if v, ok := s.source.(session.Vacuumer); ok && c.Metrics {

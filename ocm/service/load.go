@@ -70,5 +70,6 @@ func (s *Service) Load(ctx context.Context, opts LoadOptions) (*Snapshot, error)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	s.RequestHistory()
 	return snap, nil
 }

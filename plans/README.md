@@ -3,14 +3,14 @@
 Revised 2026-11-08 against `f234344`, following maintainer acceptance of the
 scope review. This package replaces the previous research-gated roadmap.
 **Start production implementation with plan 002. No further research milestone
-or contract-approval round is required.** Nothing is implemented by this revision.
+or contract-approval round is required.** Plan 002 is now implemented locally; see its evidence and remaining release limitations.
 
 ## Execution order
 
 | Plan | Outcome | Depends on | Status |
 | --- | --- | --- | --- |
 | [001](001-ocm-history-contracts.md) | Accepted release contract | Existing architecture | DECIDED — research phase closed by scope reduction |
-| [002](002-ocm-history-storage.md) | Extraction, archive, config and collection | 001 | TODO |
+| [002](002-ocm-history-storage.md) | Extraction, archive, config and collection | 001 | DONE locally — fixture oracles, retention/lock/worker/startup tests; normal/mock, vet, race and builds pass (see 002); Linux CI pending |
 | [003](003-ocm-history-cleanup.md) | Capture before deletion | 002 | TODO |
 | [004](004-ocm-history-view.md) | History view and archive-only startup | 002, 003 | TODO |
 

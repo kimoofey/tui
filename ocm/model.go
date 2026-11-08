@@ -3,6 +3,7 @@ package ocm
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -313,6 +314,9 @@ func buildTable(sessions []session.Session, selected map[session.Ref]bool, termW
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.app != nil && m.app.HistoryEnabled() {
+		return tea.Batch(tea.RequestBackgroundColor, waitHistory(m.app))
+	}
 	return tea.RequestBackgroundColor
 }
 
@@ -519,6 +523,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.statusOK = true
 		}
+
+	case historyCollectedMsg:
+		if msg.status.Err != nil {
+			m.status = "history: " + msg.status.Err.Error()
+			m.statusOK = false
+		} else if strings.HasPrefix(m.status, "history:") {
+			m.status = "history: collection complete"
+			m.statusOK = true
+		}
+		return m, waitHistory(m.app)
 
 	case reloadedMsg:
 		m.reloading = false
