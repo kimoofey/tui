@@ -11,24 +11,10 @@ import (
 )
 
 func bulkDeleteSessions(refs []session.Ref, app *service.Service, rootOnly bool, period service.CostPeriod) tea.Cmd {
-	return func() tea.Msg {
-		result := app.Delete(context.Background(), refs, service.LoadOptions{RootOnly: rootOnly, CostPeriod: period})
-		var data *reloadedMsg
-		if result.Snapshot != nil {
-			data = &reloadedMsg{snapshot: result.Snapshot}
-		}
-		return bulkDeletedMsg{count: result.Count, data: data, err: result.Err}
-	}
+	return serviceBulkDelete(refs, app, rootOnly, period)
 }
 func deleteSession(ref session.Ref, app *service.Service, rootOnly bool, period service.CostPeriod) tea.Cmd {
-	return func() tea.Msg {
-		result := app.Delete(context.Background(), []session.Ref{ref}, service.LoadOptions{RootOnly: rootOnly, CostPeriod: period})
-		var data *reloadedMsg
-		if result.Snapshot != nil {
-			data = &reloadedMsg{snapshot: result.Snapshot}
-		}
-		return deletedMsg{sessionID: ref, data: data, err: result.Err}
-	}
+	return serviceDelete(ref, app, rootOnly, period)
 }
 func openSession(ref session.Ref, app *service.Service) tea.Cmd {
 	return func() tea.Msg { return openedMsg{sessionID: ref, err: app.Resume(context.Background(), ref)} }

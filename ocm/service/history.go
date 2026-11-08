@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -28,7 +29,10 @@ type historyWorker struct {
 	done    chan struct{}
 	pending chan struct{}
 	events  chan struct{}
-	serial  sync.Mutex
+	serial  *historyGate
+	tasks   sync.WaitGroup
+	closing bool
+	guard   session.Availability
 	mu      sync.Mutex
 	status  HistoryStatus
 	timeout time.Duration
@@ -42,7 +46,7 @@ func (s *Service) EnableHistory(archive HistoryArchive, timeout time.Duration) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	source, _ := s.source.(session.HistorySource)
-	h := &historyWorker{archive: archive, source: source, ctx: ctx, cancel: cancel, done: make(chan struct{}), pending: make(chan struct{}, 1), timeout: timeout, events: make(chan struct{}, 1)}
+	h := &historyWorker{archive: archive, source: source, ctx: ctx, cancel: cancel, done: make(chan struct{}), pending: make(chan struct{}, 1), timeout: timeout, events: make(chan struct{}, 1), serial: newHistoryGate()}
 	s.history = h
 	go h.run(s.now)
 }
@@ -56,8 +60,12 @@ func (s *Service) RequestHistory() {
 }
 func (s *Service) CloseHistory() {
 	if h := s.history; h != nil {
+		h.mu.Lock()
+		h.closing = true
 		h.cancel()
+		h.mu.Unlock()
 		<-h.done
+		h.tasks.Wait()
 	}
 }
 func (s *Service) HistoryStatus() HistoryStatus {
@@ -103,26 +111,15 @@ func (h *historyWorker) sweep(now func() time.Time) error {
 		if err = h.ctx.Err(); err != nil {
 			return err
 		}
-		h.serial.Lock()
-		ctx, cancel := context.WithTimeout(h.ctx, h.timeout)
-		o, e := h.source.CaptureHistory(ctx, id)
-		if e == nil {
-			e = h.archive.Capture(ctx, o, now())
+		if err = h.serial.acquire(h.ctx, false); err != nil {
+			return err
 		}
-		cancel()
-		h.serial.Unlock()
+		e := h.capture(h.ctx, id, now)
+		h.serial.release()
 		if e != nil {
-			errs = append(errs, e)
-			if !errors.Is(e, history.ErrBinding) {
-				if statusErr := h.archive.RecordFailure(h.ctx, id); statusErr != nil {
-					errs = append(errs, statusErr)
-				}
-			}
-		} else {
-			h.mu.Lock()
-			h.status.LastCapture = now()
-			h.mu.Unlock()
+			errs = append(errs, fmt.Errorf("session %q: %w", id, e))
 		}
+
 	}
 	return errors.Join(errs...)
 }
@@ -136,4 +133,40 @@ func (s *Service) WaitHistory() HistoryStatus {
 	case <-h.done:
 		return s.HistoryStatus()
 	}
+}
+
+// capture is called only while the shared serializer is held.
+func (h *historyWorker) capture(parent context.Context, id string, now func() time.Time) error {
+	if h.source == nil {
+		return errors.New("history extraction unsupported by source")
+	}
+	ctx, cancel := context.WithTimeout(parent, h.timeout)
+	defer cancel()
+	o, err := h.source.CaptureHistory(ctx, id)
+	if err == nil && (!o.Present || o.SessionID != id) {
+		err = errors.New("fresh complete capture unavailable: session absent or identity changed")
+	}
+	if err == nil {
+		err = h.archive.Capture(ctx, o, now())
+	}
+	if err != nil {
+		if !errors.Is(err, history.ErrBinding) {
+			err = errors.Join(err, h.archive.RecordFailure(ctx, id))
+		}
+		return err
+	}
+	h.mu.Lock()
+	h.status.LastCapture = now()
+	h.mu.Unlock()
+	return nil
+}
+func (s *Service) checkHistoryDeletion(ctx context.Context) session.Availability {
+	a := session.Availability{Reason: "source does not expose a supported history deletion scope"}
+	if source, ok := s.source.(session.HistoryDeleter); ok && s.history.source != nil {
+		a = source.HistoryDeletionAvailability(ctx)
+	}
+	s.history.mu.Lock()
+	s.history.guard = a
+	s.history.mu.Unlock()
+	return a
 }

@@ -1,7 +1,9 @@
 package service
 
 import (
+	"errors"
 	"fmt"
+	"github.com/kimoofey/tui/ocm/history"
 	"time"
 
 	"github.com/kimoofey/tui/internal/terminal"
@@ -44,7 +46,9 @@ func (s *Service) Capabilities() Capabilities {
 	_, c.Resume = s.source.(session.Resumer)
 	_, c.Delete = s.source.(session.Deleter)
 	if s.history != nil {
-		c.Delete = false
+		s.history.mu.Lock()
+		c.Delete = c.Delete && s.history.guard.Available && !errors.Is(s.history.status.Err, history.ErrBinding)
+		s.history.mu.Unlock()
 	}
 	_, c.PeriodCost = s.source.(session.PeriodCoster)
 	_, c.Metrics = s.source.(session.StorageMetrics)

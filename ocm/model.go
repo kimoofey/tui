@@ -493,7 +493,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case deletedMsg:
 		m.bulkDeleting = false
 		if msg.data != nil && msg.data.err == nil && msg.data.snapshot != nil {
-			m.applyData(*msg.data)
+			m.applyDeleteData(*msg.data, msg.err != nil)
 		} else if msg.acknowledgement && msg.data == nil && msg.err == nil {
 			m.removeAcknowledgedSessions([]session.Ref{msg.sessionID})
 		}
@@ -508,7 +508,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bulkDeletedMsg:
 		m.bulkDeleting = false
 		if msg.data != nil && msg.data.err == nil && msg.data.snapshot != nil {
-			m.applyData(*msg.data)
+			m.applyDeleteData(*msg.data, msg.err != nil)
 		} else if msg.acknowledgement && msg.data == nil && msg.err == nil {
 			m.removeAcknowledgedSessions(msg.ids)
 		}
@@ -521,10 +521,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.status = fmt.Sprintf("deleted %d sessions", msg.count)
 			}
+			if m.app != nil && m.app.HistoryEnabled() {
+				m.status = fmt.Sprintf("deleted %d session trees", msg.count)
+			}
 			m.statusOK = true
 		}
 
 	case historyCollectedMsg:
+		if m.app != nil {
+			m.capabilities = m.app.Capabilities()
+			m.updateKeys()
+		}
 		if msg.status.Err != nil {
 			m.status = "history: " + msg.status.Err.Error()
 			m.statusOK = false
@@ -761,4 +768,28 @@ func (m Model) renderTitleBar() string {
 	innerWidth := m.width - 2
 	rightAligned := lipgloss.PlaceHorizontal(innerWidth-lipgloss.Width(left), lipgloss.Right, styledRight)
 	return ui.TitleBarStyle().Render(styledLeft + rightAligned)
+}
+
+// A failed guarded action still reloads authoritatively. Keep marks/cursor only
+// for refs which survived that reload, so the user can inspect and retry safely.
+func (m *Model) applyDeleteData(msg reloadedMsg, failed bool) {
+	old := m.selected
+	var cursor session.Ref
+	idx := m.table.Cursor()
+	if idx >= 0 && idx < len(m.sessions) {
+		cursor = m.sessions[idx].Ref
+	}
+	m.applyData(msg)
+	if !failed {
+		return
+	}
+	for i, row := range m.sessions {
+		if old[row.Ref] {
+			m.selected[row.Ref] = true
+		}
+		if row.Ref == cursor {
+			m.table.SetCursor(i)
+		}
+	}
+	m.rebuildRows()
 }

@@ -50,7 +50,7 @@ func (s *Service) Delete(ctx context.Context, refs []session.Ref, opts LoadOptio
 		}
 	}
 	if s.history != nil {
-		return DeleteResult{Err: errors.New("history deletion guard not implemented; enabled deletion is blocked until plan 003")}
+		return s.deleteWithHistory(ctx, refs, opts)
 	}
 	source, ok := s.source.(session.Deleter)
 	if !ok {

@@ -15,6 +15,9 @@ import (
 	"time"
 
 	terminalpkg "github.com/kimoofey/tui/internal/terminal"
+	"github.com/kimoofey/tui/ocm/history"
+	"github.com/kimoofey/tui/ocm/service"
+	"github.com/kimoofey/tui/ocm/session"
 )
 
 func testExecutable(t *testing.T, script string) string {
@@ -182,5 +185,47 @@ func TestRunDelete_FailureAndTimeout(t *testing.T) {
 	defer cancel()
 	if err := runDelete(ctx, storage, "missing"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("timeout error=%v", err)
+	}
+}
+
+func TestGuardedNativeActionUsesOriginalRouting(t *testing.T) {
+	s, w := createV2Store(t)
+	execTestSQL(t, w, `PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000`)
+	execTestSQL(t, w, `INSERT INTO session_v2 VALUES('root','Root','/p',1000,2000,0,NULL,NULL),('child','Child','/p',1000,2000,0,'root',NULL);
+ INSERT INTO session_message VALUES('root-usage','root','assistant',1,1000,1000,'{"cost":2}'),('child-usage','child','assistant',1,1000,1000,'{"cost":1}')`)
+	record := filepath.Join(t.TempDir(), "native-args")
+	t.Setenv("OCM_GUARD_RECORD", record)
+	s.storage.Executable = testExecutable(t, `printf '%s\000' "$@" "$OPENCODE_DB" > "$OCM_GUARD_RECORD"`)
+	s.storage.V2CLI = true
+	archive, err := history.Open(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+	app := service.New(s, nil, nil)
+	app.EnableHistory(archive, 0)
+	defer app.CloseHistory()
+	result := app.Delete(context.Background(), []session.Ref{{Source: s.Info().ID, ID: "root"}, {Source: s.Info().ID, ID: "child"}}, service.LoadOptions{})
+	if result.Err != nil || result.Count != 1 {
+		t.Fatal(result)
+	}
+	want := []string{"session", "delete", "root", "--standalone", s.Path()}
+	if got := readNULFields(t, record); !reflect.DeepEqual(got, want) {
+		t.Fatal(got)
+	}
+	r, err := archive.Query(context.Background(), nil)
+	if err != nil || r.Cost == nil || *r.Cost != 3 {
+		t.Fatal(r, err)
+	}
+	if err = os.Remove(record); err != nil {
+		t.Fatal(err)
+	}
+	execTestSQL(t, w, `UPDATE session_message SET type='unrecognized' WHERE session_id='child'`)
+	result = app.Delete(context.Background(), []session.Ref{{Source: s.Info().ID, ID: "root"}}, service.LoadOptions{})
+	if result.Err == nil {
+		t.Fatal("unknown type allowed native delete")
+	}
+	if _, err = os.Stat(record); !os.IsNotExist(err) {
+		t.Fatal("native action launched after failed capture", err)
 	}
 }

@@ -22,8 +22,14 @@ type Snapshot struct {
 }
 
 func (s *Service) Load(ctx context.Context, opts LoadOptions) (*Snapshot, error) {
+	return s.load(ctx, opts, true)
+}
+func (s *Service) load(ctx context.Context, opts LoadOptions, collect bool) (*Snapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if s.history != nil {
+		s.checkHistoryDeletion(ctx)
 	}
 	caps := s.Capabilities()
 	if opts.RootOnly && !caps.RootFilter {
@@ -50,6 +56,14 @@ func (s *Service) Load(ctx context.Context, opts LoadOptions) (*Snapshot, error)
 		return nil, fmt.Errorf("loading sessions: %w", err)
 	}
 	snap := &Snapshot{Sessions: listing.Sessions, TotalCount: listing.TotalCount, Capabilities: caps, PeriodCost: cost}
+	if s.history != nil {
+		s.history.mu.Lock()
+		guard := s.history.guard
+		s.history.mu.Unlock()
+		if !guard.Available {
+			snap.Diagnostics = append(snap.Diagnostics, fmt.Errorf("history deletion unavailable: %s", guard.Reason))
+		}
+	}
 	if m, ok := s.source.(session.StorageMetrics); ok {
 		value, err := m.Metrics(ctx)
 		if err != nil {
@@ -70,6 +84,8 @@ func (s *Service) Load(ctx context.Context, opts LoadOptions) (*Snapshot, error)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	s.RequestHistory()
+	if collect {
+		s.RequestHistory()
+	}
 	return snap, nil
 }

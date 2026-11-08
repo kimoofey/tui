@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"path/filepath"
 
@@ -143,14 +144,21 @@ func (s *Store) CaptureHistory(ctx context.Context, id string) (_ session.Observ
 				role = discriminator
 			}
 			if role == nil {
-				return session.Observation{}, errors.New("unknown message role")
+				return session.Observation{}, fmt.Errorf("%s session %q message %q: unknown message role (missing, malformed or unsupported discriminator); capture rejected", table, id, u.ID)
 			}
 			switch *role {
 			case "user", "system", "tool":
 				continue
 			case "assistant":
+			case "agent-switched", "model-switched", "location-switched", "synthetic", "skill", "shell", "compaction", "idle":
+				// V2 control records carry no assistant contribution. Compaction
+				// spend comes from session.usage.recorded.1 events, never both.
+				if table == "session_v2" {
+					continue
+				}
+				return session.Observation{}, fmt.Errorf("%s session %q message %q: unknown message role; capture rejected", table, id, u.ID)
 			default:
-				return session.Observation{}, errors.New("unknown message role")
+				return session.Observation{}, fmt.Errorf("%s session %q message %q: unknown message role (missing, malformed or unsupported discriminator); capture rejected", table, id, u.ID)
 			}
 			if fork != nil {
 				if u.Timestamp == nil {

@@ -27,3 +27,10 @@ type HistorySource interface {
 	HistorySessions(context.Context) ([]string, error)
 	CaptureHistory(context.Context, string) (Observation, error)
 }
+
+// HistoryDeleter describes the known native recursive deletion scope independently
+// of the filtered browser. Unsupported scope must never permit an unguarded action.
+type HistoryDeleter interface {
+	HistoryDeletionAvailability(context.Context) Availability
+	HistoryDeletionScope(context.Context, Ref) ([]Ref, error)
+}

@@ -99,8 +99,8 @@ require no cleanup.
 ### History storage (implementation preview)
 
 History is disabled by default. The storage/collection milestone is implemented;
-History navigation and guarded deletion are still pending. Do not release or rely
-on the enabled feature until those milestones are complete.
+Guarded V2 deletion is implemented; History navigation and archive-only startup
+remain pending in plan 004. The enabled feature is not yet release-ready.
 
 To opt in, add this to `$XDG_CONFIG_HOME/ocm/config.yaml` (or
 `~/.config/ocm/config.yaml` when XDG_CONFIG_HOME is empty or unset) and restart:
@@ -117,8 +117,8 @@ and never read user history configuration or archives.
 Enabled startup and successful explicit browser reloads request background
 collection. Requests coalesce, sessions are captured sequentially, and there is no
 periodic collection. Browsing/resume remain available during capture. Collection
-errors appear in the browser status. **Deletion is unavailable while history is
-enabled in this intermediate milestone**; the service also blocks direct requests.
+errors appear in the browser status. Enabled V2 deletion captures the target and
+all known descendants before invoking the existing native command.
 Disabled operation keeps the existing deletion and browsing behavior and performs
 no history extraction, file access, locking or directory creation.
 
@@ -147,3 +147,40 @@ retained as stale; other sessions continue collecting. This conservative rule ca
 stop tracking later usage after pruning or compaction changes identities. Missing
 sessions and source/native maintenance never remove archive rows. Coverage includes
 only successfully observed usage; external deletion before capture is unrecoverable.
+
+
+With history enabled, a fresh complete capture of every known session in a native
+V2 deletion tree must commit before that tree's native action can start. Missing
+sessions, uncertain accounting eligibility, stale retention, binding mismatch,
+archive errors or cancellation block the action. Already committed captures remain
+saved if a later capture or native action fails. Collection yields to queued
+deletion between sessions; capture, native completion and the authoritative browser
+reload share the same serializer. Successful actions request another collection.
+
+Bulk selection collapses selected descendants beneath selected ancestors. Reported
+counts are successful native session trees, not the number of all removed sessions.
+Independent trees can continue after another fails; a failed ancestor never triggers
+an automatic retry of its selected descendants. The browser reloads once after the
+batch, even on failure, and keeps surviving marks/cursor on failed actions.
+Vacuum and prune remain separate maintenance operations.
+
+Guarded deletion currently supports the `session_v2` parent/descendant layout,
+including children hidden by `--sessions`; forks alone are not children. Cycles are
+rejected. V1 collection remains supported, but enabled V1 deletion is unavailable:
+its native child recursion depends on the CLI's current project, which the database
+binding cannot identify safely. Unsupported scope leaves browsing/resume available
+and reports the restriction. Disabling history restores existing native behavior,
+accepting capture gaps.
+
+V2 control messages (`synthetic`, `idle`, agent/model/location switches, skill,
+shell and compaction projections) are recognized explicitly. Compaction spend is
+counted from usage events, avoiding duplicate projection costs. Unknown or malformed
+roles/types still reject the whole session capture; errors identify the schema and
+native session/message IDs without printing conversation payloads.
+
+The guarantee covers only observations committed before an OCM-requested deletion.
+Native writers, children created after discovery, disabled OCM and separate archives
+can race capture/deletion. There is no atomic source/archive/native transaction or
+recovery journal. Killing OCM can leave a native deletion process running: let it
+finish before retrying. Startup never retries destructive actions automatically.
+Usage removed before capture cannot be recovered by rerunning collection.

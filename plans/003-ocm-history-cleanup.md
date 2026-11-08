@@ -1,6 +1,6 @@
 # Plan 003: capture retained usage before native deletion
 
-Status: TODO. Planned 2026-11-08 at `f234344`. Priority P1; effort M; risk medium.
+Status: IMPLEMENTED locally on 2026-11-08. Planned at `f234344`. Priority P1; effort M; risk medium.
 Depends on completed 002. Read `001-ocm-history-contracts.md`, root/OCM AGENTS and
 the actual 002 API before editing. No historic process-recovery gate applies.
 
@@ -109,3 +109,90 @@ Stop and report if capture failure can fall through to native deletion, source
 routing changes, or a supported deletion's known scope is broader than captured.
 Unsupported scope is a visible capability restriction, not a demand for a new
 research project. Do not expand this plan into process supervision or copy recovery.
+
+## Implementation evidence (2026-11-08)
+
+- Added optional `session.HistoryDeleter` with
+  `HistoryDeletionAvailability(ctx)` and `HistoryDeletionScope(ctx, ref)`.
+  The OpenCode adapter supports V2 recursive `parent_id` descendants, including
+  hidden children, excluding unrelated forks. Scope reads are read-only snapshots;
+  duplicate/cyclic traversal is bounded and detected cycles block native recursion.
+  Foreign refs and absent targets fail before capture/native action.
+- **V1 guarded deletion is explicitly unsupported.** The pinned V1 implementation
+  filters recursive children by the CLI's current project, which the source binding
+  does not identify. This is the plan's permitted unsupported-scope restriction,
+  not a research prerequisite. V1 extraction/browsing/resume remain supported;
+  enabled V1 deletion is disabled and a load diagnostic explains why. Disabled
+  deletion is unchanged.
+- `Service.Delete` validates the full requested batch, joins the history lifecycle,
+  acquires a cancellable serializer with priority over background captures between
+  sessions, discovers scopes, normalizes selected descendants, freshly captures and
+  commits each affected session, then invokes the existing native action. Capture
+  timeout and native timeout remain separate. All errors block the affected action;
+  independent groups can continue. An ancestor failure never retries descendants.
+- The serializer stays held through native completion and one authoritative reload.
+  The internal loader can suppress collection while guarded reload is serialized;
+  one coalesced sweep is requested after successful native actions and release.
+  Close cancels/joins both collection and foreground guarded operations before
+  entry-point resources close. Snapshot publication cannot overtake deletion.
+- Browser normal and history-enabled mock commands use the same service path.
+  Failed commands clear busy state, apply the authoritative snapshot, and restore
+  surviving marks/cursor. Successful bulk counts identify native session trees.
+  Known binding mismatch disables delete availability; unsupported scope exposes a
+  diagnostic without disabling browse/resume. Vacuum/prune remain separate.
+
+Role-error investigation found that the prior V2 classifier rejected valid control
+message types. Added explicit handling for agent/model/location switches, synthetic,
+skill, shell, compaction and idle projections. Assistant costs still come from
+assistant projections and compaction costs from usage events; no double counting.
+Unknown/malformed discriminators continue to fail the entire observation. Errors
+now include schema and native session/message identities without conversation JSON.
+This reproduces/fixes a plausible cause of the reported error; no user's database
+was inspected, so the exact triggering row is unconfirmed.
+
+Upstream evidence used for the targeted adapter decisions:
+
+- [V2 SessionMessage.Info union](https://github.com/anomalyco/opencode/blob/68bc26b7da1990ce10ffecfbc1e09eb13aa5d824/packages/schema/src/session-message.ts)
+- [V2 recursive native remove](https://github.com/anomalyco/opencode/blob/68bc26b7da1990ce10ffecfbc1e09eb13aa5d824/packages/core/src/session.ts)
+- [V1 project-filtered children/remove](https://github.com/anomalyco/opencode/blob/v1.2.27/packages/opencode/src/session/index.ts)
+
+New tests cover scope descendants/forks/cycles/missing targets/foreign refs;
+control-message classification and unchanged compaction accounting; scope captures
+and commits before native invocation and one reload; overlapping selections;
+capture/commit/stale/binding/missing-observation failure; native failure/timeout,
+cancellation and reload failure; independent bulk continuation; real archive totals
+retained/reopened after both successful and partial-failure fake removal; background
+capture/deletion ordering with barriers; shutdown cancellation/join of a blocked
+native action; and normal/mock UI command completion, marks and busy state. A fake
+executable verifies original source routing, V2 --standalone, and no invocation
+after descendant capture failure. No real native delete was executed.
+
+During verification an existing CLI subprocess test inherited enabled user config;
+it failed at the sandbox's archive-directory permission boundary. The test now
+sets temporary XDG config/data paths. A new concurrent source fixture initially hit
+SQLITE_BUSY in rollback-journal mode; its writer now uses WAL and a busy timeout.
+Both failures are fixed and final runs pass. An earlier development barrier test
+was interrupted after exposing a missing fake inventory; its corrected version
+passes, including the race suite.
+
+Final local checks, all exit 0 using `GOTOOLCHAIN=go1.25.0` and
+`GOCACHE=/tmp/tui-go-cache`:
+
+- `go test ./ocm/... ./cmd/ocm/...`
+- `go test -tags mock ./ocm/... ./cmd/ocm/...`
+- `go vet ./...`
+- `go test -race ./...`
+- `make build`
+- `go test -tags mock ./...`
+- `go build -tags mock ./cmd/prq ./cmd/ocm`
+
+Build commands emitted nonfatal module metadata-cache permission warnings and
+exited 0. Hosted/Linux CI has not been run and remains required by workflow.
+No dependencies changed, no commits made, and the preexisting untracked scope
+review was left untouched. No real user database inspection or native actions.
+
+Remaining release work: plan 004 supplies History navigation, independent
+archive/source composition and archive-only startup. The feature is still disabled
+by default and not ready for enabled release. Source/native concurrency, new
+children after discovery, disabled instances, separate archives, and surviving
+native children remain the explicit limits documented in the README/contract.

@@ -3,7 +3,9 @@ package opencode
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/kimoofey/tui/ocm/session"
+	"strings"
 	"testing"
 )
 
@@ -116,5 +118,51 @@ func TestHistoryV2Oracle(t *testing.T) {
 	ids, err := s.HistorySessions(context.Background())
 	if err != nil || len(ids) != 0 {
 		t.Fatal(ids, err)
+	}
+}
+
+func TestHistoryV2ControlMessages(t *testing.T) {
+	s, w := createV2Store(t)
+	execTestSQL(t, w, `INSERT INTO session_v2 VALUES('root','Root','/p',1000,2000,0,NULL,NULL)`)
+	// From the pinned upstream SessionMessage.Info union; compaction accounting is
+	// supplied by usage events even when a projection also carries a cost.
+	for i, kind := range []string{"agent-switched", "model-switched", "location-switched", "synthetic", "skill", "shell", "compaction", "idle"} {
+		execTestSQL(t, w, `INSERT INTO session_message VALUES(?, 'root', ?, ?,1000,1000,'{"cost":99}')`, fmt.Sprint(i), kind, i)
+	}
+	execTestSQL(t, w, `INSERT INTO event VALUES('compaction-cost','root',1,'session.usage.recorded.1','{"source":"compaction","cost":2}',1000)`)
+	o, err := s.CaptureHistory(context.Background(), "root")
+	if err != nil || usageSum(o) != 2 || len(o.Usage) != 1 {
+		t.Fatal(o, err)
+	}
+	execTestSQL(t, w, `INSERT INTO session_message VALUES('unknown','root','future-type',100,1000,1000,'{}')`)
+	_, err = s.CaptureHistory(context.Background(), "root")
+	if err == nil || !strings.Contains(err.Error(), `session "root" message "unknown"`) {
+		t.Fatal(err)
+	}
+}
+func TestHistoryDeletionScope(t *testing.T) {
+	s, w := createV2Store(t)
+	execTestSQL(t, w, `INSERT INTO session_v2 VALUES ('root','Root','/p',1000,2000,0,NULL,NULL),('child','Child','/p',1000,2000,0,'root',NULL),('grand','Grand','/p',1000,2000,0,'child',NULL),('fork','Fork','/p',1000,2000,0,NULL,'root')`)
+	ctx := context.Background()
+	if !s.HistoryDeletionAvailability(ctx).Available {
+		t.Fatal("V2 unavailable")
+	}
+	refs, err := s.HistoryDeletionScope(ctx, session.Ref{Source: s.Info().ID, ID: "root"})
+	if err != nil || len(refs) != 3 {
+		t.Fatal(refs, err)
+	}
+	if _, err = s.HistoryDeletionScope(ctx, session.Ref{Source: "foreign", ID: "root"}); !errors.Is(err, session.ErrForeignSource) {
+		t.Fatal(err)
+	}
+	if _, err = s.HistoryDeletionScope(ctx, session.Ref{Source: s.Info().ID, ID: "absent"}); err == nil {
+		t.Fatal("absent target accepted")
+	}
+	execTestSQL(t, w, `UPDATE session_v2 SET parent_id='grand' WHERE id='root'`)
+	if _, err = s.HistoryDeletionScope(ctx, session.Ref{Source: s.Info().ID, ID: "root"}); !errors.Is(err, session.ErrUnsupported) {
+		t.Fatal(err)
+	}
+	v1 := createTestStore(t, testSessions)
+	if v1.HistoryDeletionAvailability(ctx).Available {
+		t.Fatal("guessed project-dependent V1 scope")
 	}
 }

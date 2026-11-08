@@ -26,6 +26,8 @@ func TestCLIProcess(t *testing.T) {
 	os.Exit(run())
 }
 func TestCLIFlagsAndFailures(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	dir := t.TempDir()
 	data := filepath.Join(dir, "opencode")
 	if err := os.Mkdir(data, 0755); err != nil {

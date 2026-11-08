@@ -3,7 +3,7 @@
 Revised 2026-11-08 against `f234344`, following maintainer acceptance of the
 scope review. This package replaces the previous research-gated roadmap.
 **Start production implementation with plan 002. No further research milestone
-or contract-approval round is required.** Plan 002 is now implemented locally; see its evidence and remaining release limitations.
+or contract-approval round is required.** Plans 002 and 003 are now implemented locally; see their evidence and remaining release limitations.
 
 ## Execution order
 
@@ -11,13 +11,13 @@ or contract-approval round is required.** Plan 002 is now implemented locally; s
 | --- | --- | --- | --- |
 | [001](001-ocm-history-contracts.md) | Accepted release contract | Existing architecture | DECIDED — research phase closed by scope reduction |
 | [002](002-ocm-history-storage.md) | Extraction, archive, config and collection | 001 | DONE locally — fixture oracles, retention/lock/worker/startup tests; normal/mock, vet, race and builds pass (see 002); Linux CI pending |
-| [003](003-ocm-history-cleanup.md) | Capture before deletion | 002 | TODO |
+| [003](003-ocm-history-cleanup.md) | Capture before deletion | 002 | DONE locally — guarded V2 scope, failure/ordering/UI/fake-CLI tests; all local gates pass; V1 scope unsupported; Linux CI pending |
 | [004](004-ocm-history-view.md) | History view and archive-only startup | 002, 003 | TODO |
 
 The original roadmap's steps 3–5 correspond to plans 002–004. Implement these
 sequentially; do not release enabled history until 004 is complete. Intermediate
-commits must build and preserve disabled behavior. In 002, enabled deletion is
-blocked until 003 supplies the guard. Update this table with implementation and
+commits must build and preserve disabled behavior. The 003 guard now permits supported V2 deletion; unsupported V1 scope remains
+blocked when history is enabled. Update this table with implementation and
 verification evidence, not just compilation success.
 
 ## Paste this to the implementing agent

@@ -8,13 +8,19 @@ import (
 	"github.com/kimoofey/tui/ocm/session"
 )
 
-func bulkDeleteSessions(ids []session.Ref, _ *service.Service, _ bool, _ service.CostPeriod) tea.Cmd {
+func bulkDeleteSessions(ids []session.Ref, app *service.Service, rootOnly bool, period service.CostPeriod) tea.Cmd {
+	if app != nil && app.HistoryEnabled() {
+		return serviceBulkDelete(ids, app, rootOnly, period)
+	}
 	return func() tea.Msg {
 		return bulkDeletedMsg{acknowledgement: true, count: len(ids), ids: append([]session.Ref(nil), ids...)}
 	}
 }
 
-func deleteSession(sessionID session.Ref, _ *service.Service, _ bool, _ service.CostPeriod) tea.Cmd {
+func deleteSession(sessionID session.Ref, app *service.Service, rootOnly bool, period service.CostPeriod) tea.Cmd {
+	if app != nil && app.HistoryEnabled() {
+		return serviceDelete(sessionID, app, rootOnly, period)
+	}
 	return func() tea.Msg {
 		return deletedMsg{acknowledgement: true, sessionID: sessionID}
 	}
