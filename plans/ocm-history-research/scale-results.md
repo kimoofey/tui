@@ -1,3 +1,12 @@
+> **Historical reference — superseded 2026-11-08.** The current release contract
+> is [plan 001](../001-ocm-history-contracts.md); execution starts at
+> [plan 002](../002-ocm-history-storage.md), as listed in the [index](../README.md).
+> Measurements and fixtures below remain evidence for their original experiments.
+> Old open gates, approval requirements, proposed precision/coordination/resource
+> contracts and “production out of scope” statements do not govern implementation.
+> Do not resume this research checklist. The accepted V1 approximation is retained
+> in plan 001; other conflicting policies are replaced there.
+
 # Generated V1/V2 pipeline measurements — 2026-11-06
 
 The next step-2 research increment is implemented and measured. This is an
