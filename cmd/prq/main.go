@@ -136,7 +136,7 @@ func main() {
 
 	_, _ = os.Stdout.WriteString(ui.PrePaint)
 
-	p := tea.NewProgram(prq.NewModel(cfg))
+	p := tea.NewProgram(prq.NewModel(cfg), ui.ProgramOptions()...)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

@@ -2,7 +2,8 @@
 
 Status: DECIDED on 2026-11-08 at `f234344`. Research is closed by an explicit
 scope reduction, not by claiming every previous gate passed. This is the
-implementation contract for plans 002–004. No production history exists yet.
+implementation contract for plans 002–005. Plans 002–004 are implemented; the
+2026-11-09 initial-import amendment below supersedes their first-run behavior.
 Read root and OCM AGENTS guidance. No external design document is required.
 
 ## Product and scope
@@ -75,7 +76,8 @@ and a repair UI are deferred. Do not substitute a maximum-total heuristic.
 Path: `$XDG_DATA_HOME/ocm/history.sqlite3`, fallback
 `~/.local/share/ocm/history.sqlite3` for empty/unset XDG_DATA_HOME. Directory mode
 0700, newly created database/lock files 0600. Keep WAL sidecars private. Use SQLite
-WAL, foreign keys, `synchronous=FULL`, explicit user_version=1 and transactions.
+WAL, foreign keys, `synchronous=FULL`, explicit user_version=2 and transactions; migrate v1 transactionally without
+changing captures or binding.
 A newer schema, corrupt archive or failed initialization returns an actionable
 startup error; never silently reset it or fall through to unguarded enabled deletion.
 No archive migration framework beyond transactional v1 initialization is needed.
@@ -97,7 +99,8 @@ exit, no PID-file stale-lock algorithm. Do not unlink a shared lock file. Close
 on every startup failure/exit. This coordinates only instances using the same
 archive. Separate archives, disabled OCM and native writers do not participate.
 
-Minimal logical schema (executor chooses Go names and exact DDL):
+Minimal logical schema:
+- initial_import singleton: completion boolean independent of source binding/usage;
 - singleton metadata: schema/policy version, bound canonical path and source schema;
 - sessions: native ID, last successful capture time, stale/error status, V1 quality;
 - usage: composite key above, optional timestamp/cost/provider/model, five nullable
@@ -111,7 +114,7 @@ failed-attempt status may be written separately without replacing accepted rows.
 
 ## Collection and process lifetime
 
-One service-owned worker serializes capture/publication and deletion. Collect on
+One service-owned worker serializes capture/publication and deletion. After initial import completes, collect on
 enabled startup, explicit browser/history refresh and after successful deletion.
 Coalesce requests to at most one pending sweep. No periodic timer in this release.
 Process sessions sequentially; check cancellation between rows/sessions, yield to
@@ -148,6 +151,21 @@ automatic retry of deletion or surviving-child crash-test gate. Document these
 limits; retain archive rows during partial source removal. Users should let any
 still-running native deletion finish before retrying. Rerunning cannot recover
 usage deleted before capture.
+
+## Initial-import amendment (2026-11-09)
+
+Before automatic collection, offer Start scan / Not now once a source is loaded.
+Start runs a modal import with a discovery spinner, then processed/total/failed
+session counts and a progress bar, without a time estimate. Cancel waits for work
+to stop, preserves committed captures and permits browsing. Failure offers Retry
+or Continue with partial history. Deferred/canceled/failed imports remain pending,
+suppress automatic sweeps and are offered on next launch; History refresh can
+restart them immediately. Guarded deletion remains active while setup is pending.
+Successful empty scans complete setup; partial failures do not. Save completion
+per archive, independent of binding and usage. Existing v1 archives migrate to v2
+with setup pending because earlier versions did not record sweep completion.
+Source unavailability leaves saved History accessible and retryable. Subsequent
+scans remain nonblocking, as described below. See plan 005 for implementation.
 
 ## UX and completion
 

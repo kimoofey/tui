@@ -8,6 +8,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -280,7 +281,7 @@ func New(opts Options, termWidth, termHeight int) Model {
 		if now == nil {
 			now = time.Now
 		}
-		m.history = historyState{backend: opts.History, viewportHeight: termHeight, active: len(opts.Sessions) == 0, month: utcMonth(now()), now: now, initial: true, queryID: 1, querying: true, refreshID: 1, refreshing: true}
+		m.history = historyState{backend: opts.History, viewportHeight: termHeight, month: utcMonth(now()), now: now, initial: true, queryID: 1, querying: true, refreshID: 1, refreshing: true}
 	}
 	m.updateKeys()
 	if len(m.diagnostics) > 0 {
@@ -328,7 +329,11 @@ func buildTable(sessions []session.Session, selected map[session.Ref]bool, termW
 
 func (m Model) Init() tea.Cmd {
 	if m.history.backend != nil {
-		return tea.Batch(tea.RequestBackgroundColor, m.history.queryCommand(m.history.queryID), m.history.refreshCommand(m.history.refreshID))
+		var loading tea.Cmd
+		if m.loadingSessions() {
+			loading = showStartupLoading()
+		}
+		return tea.Batch(tea.RequestBackgroundColor, m.history.queryCommand(m.history.queryID), m.history.refreshCommand(m.history.refreshID), loading)
 	}
 	if m.app != nil && m.app.HistoryEnabled() {
 		return tea.Batch(tea.RequestBackgroundColor, waitHistory(m.app))
@@ -339,6 +344,31 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.history.backend != nil {
 		switch event := msg.(type) {
+		case startupLoadingShowMsg:
+			cmd := m.showStartupLoading()
+			return m, cmd
+		case startupLoadingMinimumMsg:
+			cmd := m.finishStartupLoadingMinimum()
+			return m, cmd
+		case spinner.TickMsg:
+			if m.loadingSessions() && m.history.loading.visible {
+				var cmd tea.Cmd
+				m.history.loading.spinner, cmd = m.history.loading.spinner.Update(event)
+				return m, cmd
+			}
+			return m, nil
+		case historyImportDoneMsg:
+			cmd := m.finishHistoryImport(event)
+			return m, cmd
+		case historyImportTickMsg:
+			if m.history.setup.dialog == "running" && m.history.setup.id == event.id {
+				m.history.setup.frame++
+				if m.app != nil {
+					m.history.collection = m.app.HistoryStatus()
+				}
+				return m, importTick(event.id)
+			}
+			return m, nil
 		case historyQueriedMsg:
 			if event.id == m.history.queryID {
 				if event.warning != "" {
@@ -357,6 +387,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := m.applyHistorySource(event)
 			return m, cmd
 		case tea.KeyPressMsg:
+			if m.history.setup.dialog != "" {
+				cmd := m.historyImportKey(event.String())
+				return m, cmd
+			}
+			if m.loadingSessions() {
+				switch event.String() {
+				case "q", "ctrl+c":
+					return m, tea.Quit
+				case "h":
+					// Use the normal history switch below to retain explicit navigation.
+				default:
+					return m, nil
+				}
+			}
 			if m.history.refreshing && !m.history.active {
 				switch event.String() {
 				case "d", "v", "p":
@@ -377,10 +421,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 			if event.String() == "r" && !m.foregroundBusy() {
+				if m.history.setup.pending && m.app != nil {
+					m.history.setup.dialog = "prompt"
+					return m, nil
+				}
 				cmd := tea.Batch(m.history.refresh(), m.history.query())
 				return m, cmd
 			}
 		case tea.MouseWheelMsg:
+			if m.history.setup.dialog != "" || m.loadingSessions() {
+				return m, nil
+			}
 			if m.history.active {
 				delta := ui.MouseScrollLines
 				if event.Button == tea.MouseWheelUp {
@@ -753,6 +804,12 @@ func (m *Model) updateKeys() {
 }
 
 func (m Model) View() tea.View {
+	if m.history.setup.dialog != "" {
+		return m.historyImportView()
+	}
+	if m.loadingSessions() {
+		return m.sessionsLoadingView()
+	}
 	if m.history.backend != nil && m.history.active {
 		return m.historyView()
 	}

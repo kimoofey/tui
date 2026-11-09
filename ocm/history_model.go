@@ -16,6 +16,8 @@ import (
 )
 
 type historyState struct {
+	loading                     startupLoadingState
+	setup                       historyImportState
 	diagnosticsWarning          string
 	viewportHeight              int
 	backend                     service.HistoryBackend
@@ -90,6 +92,23 @@ func (h *historyState) refreshCommand(id uint64) tea.Cmd {
 	}
 }
 func (m Model) browserUsable() bool { return m.app != nil && len(m.sessions) > 0 }
+func (m Model) loadingSessions() bool {
+	return m.history.backend != nil && m.history.initial && !m.history.active && !m.browserUsable()
+}
+
+func (m Model) sessionsLoadingView() tea.View {
+	content := ""
+	if m.history.loading.visible {
+		width, height := max(1, m.width), max(1, m.height)
+		content = m.history.loading.spinner.View() + " " + lipgloss.NewStyle().Foreground(ui.ColorText).Render("Loading sessions…")
+		content = lipgloss.NewStyle().MaxWidth(width).MaxHeight(height).Render(content)
+		content = lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, content)
+	}
+	v := tea.NewView(content)
+	v.AltScreen = true
+	return v
+}
+
 func (m Model) foregroundBusy() bool {
 	return m.bulkDeleting || m.reloading || m.vacuuming || m.pruning || m.deletePhase == deletePending || m.vacuumPhase || m.prunePhase
 }
@@ -127,6 +146,10 @@ func (m *Model) historyKey(msg tea.KeyPressMsg) tea.Cmd {
 		h.offset = 0
 		return h.query()
 	case "r":
+		if h.setup.pending && m.app != nil {
+			h.setup.dialog = "prompt"
+			return nil
+		}
 		return tea.Batch(h.refresh(), h.query())
 	case "up", "k":
 		h.offset = max(0, h.offset-1)
@@ -140,6 +163,11 @@ func (m *Model) historyKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) applyHistorySource(msg historySourceMsg) tea.Cmd {
 	h := &m.history
 	if msg.id != h.refreshID {
+		return nil
+	}
+	if m.loadingSessions() && h.loading.visible && !h.loading.minimumElapsed {
+		// Keep the first result until the visible loader has had time to settle.
+		h.loading.pending = &msg
 		return nil
 	}
 	if msg.warning != "" {
@@ -160,6 +188,13 @@ func (m *Model) applyHistorySource(msg historySourceMsg) tea.Cmd {
 			h.active = true
 		} else if h.initial && !h.interacted {
 			h.active = false
+		}
+	}
+	if msg.state.Err == nil {
+		h.setup.pending = msg.state.ImportPending
+		if h.setup.pending && !h.setup.offered {
+			h.setup.offered = true
+			h.setup.dialog = "prompt"
 		}
 	}
 	h.initial = false
@@ -202,6 +237,9 @@ func (h historyState) lines(width int) []string {
 		label = "All time"
 	}
 	lines := []string{label + " · UTC", "Coverage limited to successfully observed usage."}
+	if h.setup.pending {
+		lines = append(lines, "Initial import incomplete; coverage may be partial. Press r to start/retry.")
+	}
 	if h.all || utcMonth(h.now()).Equal(h.month) {
 		lines = append(lines, "Current month/day is partial.")
 	}

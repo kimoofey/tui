@@ -36,3 +36,32 @@ func TestMockHistoryNeverUsesUserFiles(t *testing.T) {
 		t.Fatal("mock created diagnostic files", err)
 	}
 }
+
+func TestMockInitialImportAndCapabilities(t *testing.T) {
+	opts, err := loadData(false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opts.Close()
+	preview := opts.History.(*mockHistory)
+	ctx, cancel := context.WithCancel(context.Background())
+	state := preview.Refresh(ctx)
+	if state.Err != nil || !state.ImportPending {
+		t.Fatal(state)
+	}
+	cancel()
+	if err := preview.Import(ctx); err == nil {
+		t.Fatal("canceled preview completed")
+	}
+	if err := preview.Import(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	caps := state.App.Capabilities()
+	if !caps.Resume || !caps.Delete || !caps.Vacuum.Available || !caps.Orphans.Available {
+		t.Fatal(caps)
+	}
+	state = preview.Refresh(context.Background())
+	if state.ImportPending {
+		t.Fatal("preview did not finish setup")
+	}
+}

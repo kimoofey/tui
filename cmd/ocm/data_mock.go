@@ -94,6 +94,8 @@ func loadData(sessionsOnly bool, costPeriod service.CostPeriod) (ocm.Options, er
 		Capabilities: service.Capabilities{Resume: true, Delete: true, RootFilter: true, Metrics: true, PeriodCost: true, Vacuum: session.Availability{Available: true}, Orphans: session.Availability{Available: true}},
 		RootOnly:     sessionsOnly,
 	}
-	opts.History = newMockHistory(opts)
+	preview := newMockHistory(opts)
+	opts.History = preview
+	opts.Close = preview.Close
 	return opts, nil
 }

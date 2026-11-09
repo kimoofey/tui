@@ -141,8 +141,16 @@ func TestEnabledStartupIndependentOfSource(t *testing.T) {
 					t.Fatal(state)
 				}
 				resized, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
-				if !strings.Contains(resized.View().Content, "Recorded USD") {
-					t.Fatal("no history view at archive-only startup")
+				if resized.View().Content != "" {
+					t.Fatal("startup rendered before loading delay elapsed")
+				}
+				opened, cmd := resized.Update(tea.KeyPressMsg{Code: 'h'})
+				if cmd == nil {
+					t.Fatal("history navigation did not query archive")
+				}
+				opened, _ = opened.Update(cmd())
+				if !strings.Contains(opened.View().Content, "Recorded USD") {
+					t.Fatal("saved history unavailable during startup")
 				}
 				return nil
 			})

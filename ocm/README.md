@@ -113,14 +113,34 @@ history:
 ```
 
 Unknown configuration fields, malformed YAML and multiple documents are errors.
-Help/version bypass configuration. Mock builds offer an in-memory History preview
-and never read user history configuration or archives.
+Help/version bypass configuration. Mock builds offer an in-memory History preview,
+including initial-import progress and cancellation, and never read user history
+configuration or archives.
 
-Enabled startup and successful explicit browser reloads request background
-collection. Requests coalesce, sessions are captured sequentially, and there is no
-periodic collection. Browsing/resume remain available during capture. Collection
-errors appear in the browser status. Enabled V2 deletion captures the target and
-all known descendants before invoking the existing native command.
+On the first enabled launch, after the source loads, OCM asks **Import existing
+usage into History?** Choose **Start scan** (`enter`) or **Not now** (`esc`). The scan reads accounting only and leaves the source database unchanged.
+During import, normal navigation pauses: a discovery spinner is followed by a
+session-count progress bar showing processed, total and failed sessions. These
+counts do not estimate remaining time. **Cancel scan** (`esc`) waits for the
+scan to stop, retains committed captures and lets you continue browsing. `ctrl+c` quits and cancels outstanding work.
+
+Setup completes only when every discovered session is captured successfully,
+including a successful scan with no sessions. Partial failure offers **Retry**
+(`enter`) or **Continue with partial history** (`esc`). Deferral,
+cancellation or failure leaves setup pending, with a coverage warning in History.
+OCM asks again next launch; press `r` in History to start/retry during this run.
+Automatic collection stays paused while setup is pending; guarded deletion still
+captures its complete target scope. Completion is saved per archive, independently
+of usage rows and configuration toggles. Existing archives preserve all captures
+and get the same one-time prompt, since older versions did not record completion.
+Archive schema v1 migrates transactionally to v2; older OCM versions cannot open v2.
+
+After setup completes, enabled startup and successful explicit browser reloads
+request background collection. Requests coalesce, sessions are captured sequentially,
+and there is no periodic collection. Browsing/resume remain available during these
+later captures. Collection errors appear in the browser status. Enabled V2 deletion
+captures the target and all known descendants before invoking the existing native
+command.
 Disabled operation keeps the existing deletion and browsing behavior and performs
 no history extraction, file access, locking or directory creation.
 
@@ -199,7 +219,7 @@ mutations. History initially shows the current UTC month:
 | `[` / `]` | Previous / next UTC month; from all-time, return to current month |
 | `0` | Current UTC month |
 | `a` | All captured time, including usage without timestamps |
-| `r` | Reload/retry the source, request collection and reload saved accounting |
+| `r` | Start/retry pending initial import; otherwise reload/retry the source, collect and reload saved accounting |
 | `↑/k` / `↓/j` | Scroll days, model breakdown and status |
 | `esc` / `h` | Return to the browser when source sessions are available |
 | `?` | Toggle History help |
@@ -214,7 +234,14 @@ No captured usage is not proof of zero spend. Failed archive queries keep the
 previous result visible with an error and its original range label.
 
 Enabled startup opens the archive first and discovers/loads the source in the
-background. Saved history can be used during discovery and collection. With no
+background. Fast loads open the session browser directly. If loading takes more
+than 150 ms, a Dot spinner with “Loading sessions…” appears at the center of the
+terminal for at least 300 ms before
+the browser, History fallback, or initial-import prompt opens. Press `h` while
+loading to open saved History; it stays open when sessions arrive.
+Saved history can also be used during later background
+collection. Initial import uses the dialog described above; if the source is
+unavailable, saved History remains accessible and `r` retries discovery. With no
 usable source or no sessions, OCM stays in History, including for an empty archive;
 source errors stay visible, and source actions are unavailable. Press `r` to retry
 discovery/loading. A recovered source restores the browser and its valid

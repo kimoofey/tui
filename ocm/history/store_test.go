@@ -337,3 +337,46 @@ func TestDiagnosticsConfigOptIn(t *testing.T) {
 		t.Fatal("unknown diagnostic field accepted")
 	}
 }
+
+func TestInitialImportMigrationAndPersistence(t *testing.T) {
+	s, path := openTest(t)
+	ctx := context.Background()
+	if complete, err := s.InitialImportComplete(ctx); err != nil || complete {
+		t.Fatal(complete, err)
+	}
+	if err := s.Capture(ctx, observation(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	// Recreate the v1 layout while retaining accounting and binding.
+	if _, err := s.db.Exec(`DROP TABLE initial_import; PRAGMA user_version=1`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	migrated, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if complete, err := migrated.InitialImportComplete(ctx); err != nil || complete {
+		t.Fatal(complete, err)
+	}
+	if r := report(t, migrated); r.Rows != 1 || *r.Cost != 2 {
+		t.Fatal(r)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := migrated.CompleteInitialImport(canceled); err == nil {
+		t.Fatal("canceled completion succeeded")
+	}
+	if err := migrated.CompleteInitialImport(ctx); err != nil {
+		t.Fatal(err)
+	}
+	migrated.Close()
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if complete, err := reopened.InitialImportComplete(ctx); err != nil || !complete {
+		t.Fatal(complete, err)
+	}
+}

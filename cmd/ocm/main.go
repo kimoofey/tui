@@ -46,7 +46,7 @@ func run() int {
 	}
 	return runBrowser(opts, func(model tea.Model) error {
 		_, _ = os.Stdout.WriteString(ui.PrePaint)
-		_, err := tea.NewProgram(model).Run()
+		_, err := tea.NewProgram(model, ui.ProgramOptions()...).Run()
 		return err
 	})
 }

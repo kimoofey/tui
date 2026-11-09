@@ -2,7 +2,10 @@
 
 Revised 2026-11-08 against `f234344`, following maintainer acceptance of the
 scope review. This package replaces the previous research-gated roadmap.
-**Plans 002–004 are implemented and verified locally.** No further research
+**Plans 002–004 are implemented and verified locally.** The approved 2026-11-09
+initial-import amendment is implemented in [005](005-ocm-history-initial-import.md),
+against `5e8bda0`; it replaces automatic first-run collection with a cancellable
+setup dialog. Later collection remains in the background. No further research
 milestone or contract-approval round is required. See each plan for implementation
 evidence and supported-scope limitations.
 
@@ -14,6 +17,7 @@ evidence and supported-scope limitations.
 | [002](002-ocm-history-storage.md) | Extraction, archive, config and collection | 001 | DONE locally — fixture oracles, retention/lock/worker/startup tests; normal/mock, vet, race and builds pass (see 002); Linux CI pending |
 | [003](003-ocm-history-cleanup.md) | Capture before deletion | 002 | DONE locally — guarded V2 scope, failure/ordering/UI/fake-CLI tests; all local gates pass; V1 scope unsupported; Linux CI pending |
 | [004](004-ocm-history-view.md) | History view and archive-only startup | 002, 003 | DONE locally — History navigation, source retry/startup matrix, snapshot and fixture-journey tests; all local gates pass; Linux CI pending |
+| [005](005-ocm-history-initial-import.md) | Initial-import consent, progress, cancel and durable completion | 002–004 | DONE locally — migration, cancellation/retry, partial/empty/source-unavailable, guarded deletion, shutdown, UI and mock tests; vet, race, normal/mock builds and mock suite pass; Linux CI pending |
 
 The original roadmap's steps 3–5 correspond to plans 002–004. Implement these
 sequentially; the opt-in sequence is now locally complete. History remains disabled
@@ -23,8 +27,9 @@ verification evidence, not just compilation success.
 
 ## Paste this to the implementing agent
 
-> Read `AGENTS.md`, `ocm/AGENTS.md`, `plans/README.md` and plans 001–004 completely.
-> Implement plans 002, 003 and 004 in order using the accepted contract in 001.
+> Read `AGENTS.md`, `ocm/AGENTS.md`, `plans/README.md` and plans 001–005 completely.
+> Plans 002–005 are implemented. Preserve the accepted contract in 001, including
+> the initial-import amendment in 005, when making follow-up changes.
 > Make routine implementation choices yourself; do not reopen the retired research
 > gates. Inspect existing code and prerequisite changes before each increment.
 > Preserve normal/mock builds and disabled behavior. Use fixtures and fake
@@ -34,7 +39,8 @@ verification evidence, not just compilation success.
 
 ## Authority and historical material
 
-Plan 001 and these revised handoffs are the current product contract. Their
+Plan 001, the approved initial-import amendment in 005, and these revised handoffs
+are the current product contract. Their
 2026-11-08 decisions supersede conflicting instructions in all research Markdown,
 previous versions of these handoffs, and ignored `.zed/ocm/HISTORY.md` and
 `ROADMAP.md`. `.zed` documents are not prerequisites and need not be supplied to

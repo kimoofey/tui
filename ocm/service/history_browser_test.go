@@ -89,8 +89,11 @@ func TestHistoryBrowserFixtureJourney(t *testing.T) {
 	if state.Err != nil || len(state.Snapshot.Sessions) != 2 {
 		t.Fatal(state)
 	}
-	if status := state.App.WaitHistory(); status.Err != nil {
-		t.Fatal(status.Err)
+	if !state.ImportPending {
+		t.Fatal("initial import not offered")
+	}
+	if err := b.Import(ctx); err != nil {
+		t.Fatal(err)
 	}
 	r, err := b.Query(ctx, nil)
 	if err != nil || r.Cost == nil || *r.Cost != 3 || len(r.Days) != 2 || len(r.Models) != 2 {
@@ -190,7 +193,9 @@ func TestHistoryBrowserSourceRetryAndEmptyCoverage(t *testing.T) {
 	if state.Err != nil || len(state.Snapshot.Sessions) != 2 {
 		t.Fatal(state)
 	}
-	state.App.WaitHistory()
+	if err := b.Import(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	r, err = b.Query(context.Background(), nil)
 	if err != nil || r.Cost == nil || *r.Cost != 3 {
 		t.Fatal(r, err)
@@ -220,8 +225,9 @@ func TestHistoryBrowserBindingMismatchKeepsSavedHistory(t *testing.T) {
 	if state.Err != nil || state.App == nil || len(state.Snapshot.Sessions) != 2 {
 		t.Fatal(state)
 	}
-	status := state.App.WaitHistory()
-	if !errors.Is(status.Err, history.ErrBinding) || state.App.Capabilities().Delete {
+	importErr := b.Import(ctx)
+	status := state.App.HistoryStatus()
+	if !errors.Is(importErr, history.ErrBinding) || state.App.Capabilities().Delete {
 		t.Fatal(status)
 	}
 	r, err := b.Query(ctx, nil)
@@ -241,10 +247,202 @@ func TestHistoryBrowserUnsupportedCollectionKeepsBrowser(t *testing.T) {
 	if state.Err != nil || len(state.Snapshot.Sessions) != 1 {
 		t.Fatal(state)
 	}
-	if status := state.App.WaitHistory(); status.Err == nil || state.App.Capabilities().Delete {
-		t.Fatal(status)
+	if err := b.Import(context.Background()); err == nil || state.App.Capabilities().Delete {
+		t.Fatal(err)
 	}
 	if _, err = b.Query(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInitialImportDeferralEmptyAndRestart(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "history.db")
+	archive, err := history.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := fixtureJourneySource()
+	source.usage = map[string]session.Observation{}
+	b := NewHistoryBrowser(archive, func(context.Context) (session.Source, error) { return source, nil }, nil, LoadOptions{})
+	state := b.Refresh(ctx)
+	if state.Err != nil || !state.ImportPending {
+		t.Fatal(state)
+	}
+	// Even explicit automatic sweep requests are suppressed while setup is pending.
+	state.App.RequestHistory()
+	state = b.Refresh(ctx)
+	if state.App.HistoryStatus().Running || !state.ImportPending {
+		t.Fatal(state)
+	}
+	if err := b.Import(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if complete, err := archive.InitialImportComplete(ctx); err != nil || !complete {
+		t.Fatal(complete, err)
+	}
+	if state.App.HistoryStatus().Total != 0 {
+		t.Fatal(state.App.HistoryStatus())
+	}
+	b.Close()
+	archive, err = history.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b = NewHistoryBrowser(archive, func(context.Context) (session.Source, error) { return fixtureJourneySource(), nil }, nil, LoadOptions{})
+	defer b.Close()
+	state = b.Refresh(ctx)
+	if state.Err != nil || state.ImportPending {
+		t.Fatal(state)
+	}
+	if status := state.App.WaitHistory(); status.Err != nil {
+		t.Fatal(status)
+	}
+}
+
+type cancellableImportSource struct {
+	*journeySource
+	entered, release chan struct{}
+}
+
+func (f *cancellableImportSource) HistorySessions(context.Context) ([]string, error) {
+	return []string{"root", "child"}, nil
+}
+func (f *cancellableImportSource) CaptureHistory(ctx context.Context, id string) (session.Observation, error) {
+	if id == "child" {
+		select {
+		case f.entered <- struct{}{}:
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return session.Observation{}, ctx.Err()
+		case <-f.release:
+		}
+	}
+	return f.journeySource.CaptureHistory(ctx, id)
+}
+func TestInitialImportCancellationRetainsCapturesAndAllowsRetry(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	archive, err := history.Open(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &cancellableImportSource{fixtureJourneySource(), make(chan struct{}, 1), make(chan struct{})}
+	b := NewHistoryBrowser(archive, func(context.Context) (session.Source, error) { return f, nil }, nil, LoadOptions{})
+	defer b.Close()
+	state := b.Refresh(ctx)
+	if state.Err != nil {
+		t.Fatal(state.Err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- b.Import(ctx) }()
+	<-f.entered
+	status := state.App.HistoryStatus()
+	if status.Processed != 1 || status.Total != 2 || !status.Running {
+		t.Fatal(status)
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if complete, err := archive.InitialImportComplete(context.Background()); err != nil || complete {
+		t.Fatal(complete, err)
+	}
+	r, err := b.Query(context.Background(), nil)
+	if err != nil || r.Rows != 1 || *r.Cost != 1 {
+		t.Fatal(r, err)
+	}
+	// The worker is still alive and retry is idempotent.
+	f.entered = make(chan struct{}, 1)
+	close(f.release)
+	if err := b.Import(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	r, err = b.Query(context.Background(), nil)
+	if err != nil || r.Rows != 2 || *r.Cost != 3 {
+		t.Fatal(r, err)
+	}
+	state = b.Refresh(context.Background())
+	if state.ImportPending {
+		t.Fatal("retry did not complete setup")
+	}
+	state.App.WaitHistory()
+}
+
+func TestInitialImportPartialFailureDoesNotCompleteSetup(t *testing.T) {
+	ctx := context.Background()
+	archive, err := history.Open(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := fixtureJourneySource()
+	bad := f.usage["child"]
+	bad.Present = false
+	f.usage["child"] = bad
+	b := NewHistoryBrowser(archive, func(context.Context) (session.Source, error) { return f, nil }, nil, LoadOptions{})
+	defer b.Close()
+	state := b.Refresh(ctx)
+	if err := b.Import(ctx); err == nil {
+		t.Fatal("partial failure ignored")
+	}
+	status := state.App.HistoryStatus()
+	if status.Processed != 2 || status.Total != 2 || status.Failed != 1 || status.Running {
+		t.Fatal(status)
+	}
+	if complete, err := archive.InitialImportComplete(ctx); err != nil || complete {
+		t.Fatal(complete, err)
+	}
+	r, err := b.Query(ctx, nil)
+	if err != nil || r.Rows != 1 {
+		t.Fatal(r, err)
+	}
+}
+
+func TestPendingInitialImportStillGuardsDeletion(t *testing.T) {
+	ctx := context.Background()
+	archive, err := history.Open(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := fixtureJourneySource()
+	b := NewHistoryBrowser(archive, func(context.Context) (session.Source, error) { return f, nil }, nil, LoadOptions{})
+	defer b.Close()
+	state := b.Refresh(ctx)
+	if !state.ImportPending {
+		t.Fatal(state)
+	}
+	result := state.App.Delete(ctx, []session.Ref{{Source: "fixture", ID: "root"}}, LoadOptions{})
+	if result.Err != nil || result.Count != 1 {
+		t.Fatal(result)
+	}
+	r, err := b.Query(ctx, nil)
+	if err != nil || r.Rows != 2 || *r.Cost != 3 {
+		t.Fatal(r, err)
+	}
+	if complete, err := archive.InitialImportComplete(ctx); err != nil || complete {
+		t.Fatal("deletion marked initial import complete", complete, err)
+	}
+}
+
+func TestInitialImportShutdownCancelsAndJoins(t *testing.T) {
+	archive, err := history.Open(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &cancellableImportSource{fixtureJourneySource(), make(chan struct{}, 1), make(chan struct{})}
+	b := NewHistoryBrowser(archive, func(context.Context) (session.Source, error) { return f, nil }, nil, LoadOptions{})
+	if state := b.Refresh(context.Background()); state.Err != nil {
+		t.Fatal(state.Err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- b.Import(context.Background()) }()
+	<-f.entered
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 }

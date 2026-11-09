@@ -77,7 +77,7 @@ func Open(path string) (store *Store, err error) {
 	if err = s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, fmt.Errorf("read history archive: %w", err)
 	}
-	if version != 0 && version != 1 {
+	if version != 0 && version != 1 && version != 2 {
 		return nil, fmt.Errorf("unsupported history schema %d; archive left untouched", version)
 	}
 	if version == 0 {
@@ -134,6 +134,22 @@ func Open(path string) (store *Store, err error) {
 	}
 	if invalid != 0 {
 		return nil, errors.New("unsupported history accounting policy")
+	}
+	if version < 2 {
+		tx, e := s.db.Begin()
+		if e != nil {
+			return nil, e
+		}
+		defer tx.Rollback()
+		if _, err = tx.Exec(`CREATE TABLE initial_import (id INTEGER PRIMARY KEY CHECK(id=1), complete INTEGER NOT NULL CHECK(complete IN (0,1))); INSERT INTO initial_import VALUES(1,0); PRAGMA user_version=2;`); err != nil {
+			return nil, err
+		}
+		if err = tx.Commit(); err != nil {
+			return nil, err
+		}
+	}
+	if _, err = s.InitialImportComplete(context.Background()); err != nil {
+		return nil, fmt.Errorf("invalid initial import state: %w", err)
 	}
 	return s, nil
 }
@@ -253,5 +269,19 @@ func (s *Store) Capture(ctx context.Context, o session.Observation, at time.Time
 // RecordFailure persists only a generic status, never source errors containing payloads.
 func (s *Store) RecordFailure(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET status='capture failed; saved usage retained' WHERE id=? AND status=''`, id)
+	return err
+}
+
+// InitialImportComplete is independent of binding and usage, including empty sources.
+func (s *Store) InitialImportComplete(ctx context.Context) (bool, error) {
+	var complete int
+	err := s.db.QueryRowContext(ctx, `SELECT complete FROM initial_import WHERE id=1`).Scan(&complete)
+	if err == nil && complete != 0 && complete != 1 {
+		return false, errors.New("invalid initial import state")
+	}
+	return complete == 1, err
+}
+func (s *Store) CompleteInitialImport(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE initial_import SET complete=1 WHERE id=1`)
 	return err
 }

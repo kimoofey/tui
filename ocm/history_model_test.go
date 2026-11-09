@@ -3,6 +3,7 @@ package ocm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -35,15 +36,123 @@ func historyKeyTest(m Model, key string) (Model, tea.Cmd) {
 		msg = tea.KeyPressMsg{Code: rune(key[0])}
 	} else {
 		switch key {
+		case "enter":
+			msg = tea.KeyPressMsg{Code: tea.KeyEnter}
 		case "esc":
 			msg = tea.KeyPressMsg{Code: tea.KeyEscape}
 		case "down":
 			msg = tea.KeyPressMsg{Code: tea.KeyDown}
+		case "ctrl+c":
+			msg = tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 		}
 	}
 	next, cmd := m.Update(msg)
 	return next.(Model), cmd
 }
+
+func TestHistoryStartupScreenTransitions(t *testing.T) {
+	for _, queryFirst := range []bool{false, true} {
+		for _, outcome := range []string{"sessions", "empty", "unavailable", "import"} {
+			for _, openHistory := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/queryFirst=%t/history=%t", outcome, queryFirst, openHistory), func(t *testing.T) {
+					app := service.New(&browserSource{}, nil, nil)
+					state := service.BrowserState{App: app, Snapshot: &service.Snapshot{}}
+					if outcome == "unavailable" {
+						state = service.BrowserState{Err: errors.New("source unavailable")}
+					} else if outcome != "empty" {
+						state.Snapshot.Sessions = []session.Session{{Ref: session.Ref{Source: "fake", ID: "one"}}}
+						state.ImportPending = outcome == "import"
+					}
+					f := &historyBackendFixture{state: state}
+					m := historyTestModel(f)
+					assertLoading := func() {
+						t.Helper()
+						view := m.View()
+						if !view.AltScreen || view.Content != "" {
+							t.Fatalf("unexpected startup view: %q", view.Content)
+						}
+					}
+					assertLoading()
+					cmds := m.Init()().(tea.BatchMsg)
+					if openHistory {
+						var cmd tea.Cmd
+						m, cmd = historyKeyTest(m, "h")
+						next, _ := m.Update(cmd())
+						m = next.(Model)
+						if !strings.Contains(m.View().Content, "Recorded USD") {
+							t.Fatal("explicit history navigation did not show saved usage")
+						}
+					}
+					order := []int{2, 1}
+					if queryFirst {
+						order = []int{1, 2}
+					}
+					for _, index := range order {
+						next, _ := m.Update(cmds[index]())
+						m = next.(Model)
+						if index == 1 && queryFirst && !openHistory {
+							assertLoading()
+						}
+					}
+					if m.loadingSessions() {
+						t.Fatal("source result did not finish loading")
+					}
+					wantHistory := openHistory || outcome == "empty" || outcome == "unavailable"
+					if m.history.active != wantHistory {
+						t.Fatalf("history active=%t, want %t", m.history.active, wantHistory)
+					}
+					content := m.View().Content
+					switch {
+					case outcome == "import":
+						if !strings.Contains(content, "Import existing usage") {
+							t.Fatal("startup skipped import prompt")
+						}
+					case wantHistory:
+						if !strings.Contains(content, "Recorded USD") {
+							t.Fatal("fallback/explicit history not rendered")
+						}
+					case strings.Contains(content, "Recorded USD"), strings.Contains(content, "Loading sessions"):
+						t.Fatalf("sessions did not open: %q", content)
+					}
+					if outcome == "unavailable" && !strings.Contains(content, "source unavailable") {
+						t.Fatal("fallback hid source failure")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestHistoryStartupLoadingInputAndResize(t *testing.T) {
+	m := historyTestModel(&historyBackendFixture{})
+	for _, key := range []string{"enter", " ", "d", "v", "p", "r", "]", "a", "?", "esc", "down"} {
+		next, cmd := historyKeyTest(m, key)
+		if cmd != nil || !next.loadingSessions() || next.history.interacted || next.history.pendingRefresh || next.foregroundBusy() || next.help.ShowAll {
+			t.Fatalf("loading accepted action %q", key)
+		}
+		m = next
+	}
+	for _, key := range []string{"q", "ctrl+c"} {
+		_, cmd := historyKeyTest(m, key)
+		if cmd == nil {
+			t.Fatalf("%q did not quit", key)
+		}
+		if _, ok := cmd().(tea.QuitMsg); !ok {
+			t.Fatalf("%q returned a non-quit command", key)
+		}
+	}
+	next, _ := m.Update(startupLoadingShowMsg{})
+	m = next.(Model)
+	for _, size := range [][2]int{{100, 30}, {20, 2}, {1, 1}} {
+		next, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		m = next.(Model)
+		view := m.View()
+		if !view.AltScreen || lipgloss.Width(view.Content) > size[0] || lipgloss.Height(view.Content) > size[1] {
+			t.Fatalf("loading exceeded %v: %q", size, view.Content)
+		}
+	}
+}
+
 func TestHistoryInitAndRangesIgnoreOldQueries(t *testing.T) {
 	cost := 1.25
 	f := &historyBackendFixture{report: history.Report{Total: history.Total{Cost: &cost, Rows: 1}}}
@@ -52,14 +161,15 @@ func TestHistoryInitAndRangesIgnoreOldQueries(t *testing.T) {
 		t.Fatal(m.history.month)
 	}
 	cmds := m.Init()().(tea.BatchMsg)
-	if len(cmds) != 3 {
-		t.Fatal("background/query/source commands missing")
+	if len(cmds) != 4 {
+		t.Fatal("background/query/source/delayed-loader commands missing")
 	}
 	next, _ := m.Update(cmds[1]())
 	m = next.(Model)
 	if !m.history.hasReport {
 		t.Fatal("initial response ignored")
 	}
+	m, _ = historyKeyTest(m, "h")
 	m, older := historyKeyTest(m, "]")
 	if m.history.month.Month() != time.January {
 		t.Fatal(m.history.month)
@@ -151,6 +261,7 @@ func TestHistorySourceRecoveryAndSelection(t *testing.T) {
 func TestHistoryRefreshCoalescesAndInactiveResults(t *testing.T) {
 	f := &historyBackendFixture{}
 	m := historyTestModel(f)
+	m, _ = historyKeyTest(m, "h")
 	m, first := historyKeyTest(m, "r")
 	if !m.history.pendingRefresh || first == nil {
 		t.Fatal("pending refresh missing")
@@ -175,6 +286,7 @@ func TestHistoryRenderingUnknownZeroQualityAndGeometry(t *testing.T) {
 	name := strings.Repeat("模型", 30)
 	f := &historyBackendFixture{}
 	m := historyTestModel(f)
+	m, _ = historyKeyTest(m, "h")
 	m.history.refreshing = false
 	m.history.hasReport = true
 	m.history.querying = false

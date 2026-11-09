@@ -18,9 +18,10 @@ type HistoryStore interface {
 	Close() error
 }
 type BrowserState struct {
-	App      *Service
-	Snapshot *Snapshot
-	Err      error
+	App           *Service
+	Snapshot      *Snapshot
+	Err           error
+	ImportPending bool
 }
 type HistoryBackend interface {
 	Query(context.Context, *history.Range) (history.Report, error)
@@ -110,6 +111,14 @@ func (b *HistoryBrowser) Refresh(ctx context.Context) BrowserState {
 		b.app = New(source, b.launcher, nil)
 		b.app.EnableHistory(b.archive, 0, b.diagnostics)
 	}
+	complete, err := b.InitialImportComplete(ctx)
+	if err != nil {
+		b.closeSource()
+		return BrowserState{Err: err}
+	}
+	b.app.history.mu.Lock()
+	b.app.history.importPending = !complete
+	b.app.history.mu.Unlock()
 	start := time.Now()
 	snap, err := b.app.Load(ctx, b.load)
 	count := 0
@@ -121,7 +130,7 @@ func (b *HistoryBrowser) Refresh(ctx context.Context) BrowserState {
 		b.closeSource()
 		return BrowserState{Err: err}
 	}
-	return BrowserState{App: b.app, Snapshot: snap}
+	return BrowserState{App: b.app, Snapshot: snap, ImportPending: !complete}
 }
 func (b *HistoryBrowser) closeSource() {
 	if b.app != nil {
@@ -149,3 +158,65 @@ func (b *HistoryBrowser) Close() error {
 // DiagnosticsWarning reads cached status only; it performs no file I/O and may
 // be attached to the next UI query/refresh/collection response.
 func (b *HistoryBrowser) DiagnosticsWarning() string { return b.diagnostics.Warning() }
+
+// HistoryImportBackend is optional for preview and alternate history backends.
+// Import must stop before returning on cancellation. Progress is available through
+// the refreshed Service's HistoryStatus, which is safe to read concurrently.
+type HistoryImportBackend interface {
+	Import(context.Context) error
+}
+type initialImportStore interface {
+	InitialImportComplete(context.Context) (bool, error)
+	CompleteInitialImport(context.Context) error
+}
+
+func (b *HistoryBrowser) InitialImportComplete(ctx context.Context) (bool, error) {
+	if store, ok := b.archive.(initialImportStore); ok {
+		return store.InitialImportComplete(ctx)
+	}
+	return true, nil
+}
+func (b *HistoryBrowser) Import(ctx context.Context) error {
+	ctx, done, err := b.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer done()
+	select {
+	case b.refresh <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-b.refresh }()
+	if b.app == nil {
+		return errors.New("source unavailable; refresh to retry")
+	}
+	h := b.app.history
+	h.mu.Lock()
+	if !h.importPending {
+		h.mu.Unlock()
+		return nil
+	}
+	h.status.Revision++
+	h.status.Running = true
+	h.status.Err = nil
+	h.mu.Unlock()
+	start := time.Now()
+	h.diagnostics.Record(diagnostics.Event{Kind: diagnostics.Collection, Stage: diagnostics.Begin})
+	err = h.sweep(ctx, b.app.now)
+	if err == nil {
+		if store, ok := b.archive.(initialImportStore); ok {
+			err = store.CompleteInitialImport(ctx)
+		}
+	}
+	h.diagnostics.Record(diagnostics.Event{Kind: diagnostics.Collection, Code: diagnosticCode(err), Duration: time.Since(start)})
+	h.mu.Lock()
+	h.status.Revision++
+	h.status.Running = false
+	h.status.Err = err
+	if err == nil {
+		h.importPending = false
+	}
+	h.mu.Unlock()
+	return err
+}

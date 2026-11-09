@@ -4,6 +4,10 @@ Status: IMPLEMENTED locally on 2026-11-08. Planned at `f234344`. Priority P1; ef
 Depends on the DECIDED contract in `001-ocm-history-contracts.md`, not old research
 gates. Read that contract and root/OCM AGENTS in full. Implement production code.
 
+First-run collection is superseded by the approved initial-import flow in
+[005](005-ocm-history-initial-import.md); background collection begins after setup
+completes. Archive v1 migrates transactionally to v2 for the completion marker.
+
 ## Outcome and boundaries
 
 Durable idempotent collection runs in the background when explicitly enabled.

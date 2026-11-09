@@ -4,6 +4,10 @@ Status: IMPLEMENTED locally on 2026-11-08. Planned at `f234344`. Priority P1; ef
 Depends on 002 and 003. Read the accepted contract in 001 and root/OCM AGENTS.
 This completes the releasable opt-in feature; no performance research gate remains.
 
+Initial-import UX is amended by [005](005-ocm-history-initial-import.md): first
+collection requires consent and displays cancellable modal progress. Saved History
+remains available when the source is unavailable. Later scans remain background.
+
 ## Outcome and scope
 
 Users can see retained UTC daily costs and provider/model totals, including after

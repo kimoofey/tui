@@ -18,27 +18,30 @@ type HistoryArchive interface {
 	RecordFailure(context.Context, string) error
 }
 type HistoryStatus struct {
-	Revision    uint64
-	Running     bool
-	LastCapture time.Time
-	Err         error
+	Phase                    string
+	Processed, Total, Failed int
+	Revision                 uint64
+	Running                  bool
+	LastCapture              time.Time
+	Err                      error
 }
 type historyWorker struct {
-	diagnostics *diagnostics.Logger
-	archive     HistoryArchive
-	source      session.HistorySource
-	ctx         context.Context
-	cancel      context.CancelFunc
-	done        chan struct{}
-	pending     chan struct{}
-	events      chan struct{}
-	serial      *historyGate
-	tasks       sync.WaitGroup
-	closing     bool
-	guard       session.Availability
-	mu          sync.Mutex
-	status      HistoryStatus
-	timeout     time.Duration
+	diagnostics   *diagnostics.Logger
+	archive       HistoryArchive
+	source        session.HistorySource
+	ctx           context.Context
+	cancel        context.CancelFunc
+	done          chan struct{}
+	pending       chan struct{}
+	events        chan struct{}
+	serial        *historyGate
+	tasks         sync.WaitGroup
+	closing       bool
+	importPending bool
+	guard         session.Availability
+	mu            sync.Mutex
+	status        HistoryStatus
+	timeout       time.Duration
 }
 
 // EnableHistory must be called during composition, before concurrent service use.
@@ -59,6 +62,11 @@ func (s *Service) EnableHistory(archive HistoryArchive, timeout time.Duration, l
 }
 func (s *Service) RequestHistory() {
 	if h := s.history; h != nil {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if h.importPending || h.closing {
+			return
+		}
 		select {
 		case h.pending <- struct{}{}:
 		default:
@@ -96,7 +104,7 @@ func (h *historyWorker) run(now func() time.Time) {
 			h.mu.Unlock()
 			start := time.Now()
 			h.diagnostics.Record(diagnostics.Event{Kind: diagnostics.Collection, Stage: diagnostics.Begin})
-			err := h.sweep(now)
+			err := h.sweep(h.ctx, now)
 			h.diagnostics.Record(diagnostics.Event{Kind: diagnostics.Collection, Code: diagnosticCode(err), Duration: time.Since(start)})
 			h.mu.Lock()
 			h.status.Revision++
@@ -110,31 +118,45 @@ func (h *historyWorker) run(now func() time.Time) {
 		}
 	}
 }
-func (h *historyWorker) sweep(now func() time.Time) error {
+func (h *historyWorker) sweep(ctx context.Context, now func() time.Time) error {
+	h.mu.Lock()
+	h.status.Phase = "Discovering sessions"
+	h.status.Processed, h.status.Total, h.status.Failed = 0, 0, 0
+	h.mu.Unlock()
 	if h.source == nil {
 		return fmt.Errorf("%w: history extraction unsupported by source", session.ErrUnsupported)
 	}
-	ids, err := h.source.HistorySessions(h.ctx)
+	ids, err := h.source.HistorySessions(ctx)
 	h.diagnostics.Record(diagnostics.Event{Kind: diagnostics.Collection, Stage: diagnostics.Scope, Code: diagnosticCode(err), Count: len(ids)})
 	if err != nil {
 		return err
 	}
+	h.mu.Lock()
+	h.status.Total = len(ids)
+	h.status.Phase = "Capturing sessions"
+	h.mu.Unlock()
 	var errs []error
 	for _, id := range ids {
-		if err = h.ctx.Err(); err != nil {
+		if err = ctx.Err(); err != nil {
 			return err
 		}
-		if err = h.serial.acquire(h.ctx, false); err != nil {
+		if err = h.serial.acquire(ctx, false); err != nil {
 			return err
 		}
-		e := h.capture(h.ctx, id, now)
+		e := h.capture(ctx, id, now)
 		h.serial.release()
+		h.mu.Lock()
+		h.status.Processed++
+		if e != nil {
+			h.status.Failed++
+		}
+		h.mu.Unlock()
 		if e != nil {
 			errs = append(errs, fmt.Errorf("session %q: %w", id, e))
 		}
 
 	}
-	return errors.Join(errs...)
+	return errors.Join(append(errs, ctx.Err())...)
 }
 
 func (s *Service) HistoryEnabled() bool { return s.history != nil }
