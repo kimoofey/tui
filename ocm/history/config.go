@@ -13,7 +13,10 @@ import (
 
 type Config struct {
 	History struct {
-		Enabled bool `yaml:"enabled"`
+		Enabled     bool `yaml:"enabled"`
+		Diagnostics struct {
+			Enabled bool `yaml:"enabled"`
+		} `yaml:"diagnostics"`
 	} `yaml:"history"`
 }
 

@@ -31,6 +31,7 @@ type Report struct {
 	Models                                    []Model
 	Sessions                                  []SessionStatus
 	Unbucketed, UnknownProvider, UnknownModel int64
+	UnbucketedCost                            *float64
 	Tokens                                    [5]*int64
 	ApproximateV1                             bool
 }
@@ -45,6 +46,10 @@ func readTotal(row interface{ Scan(...any) error }, t *Total) error {
 
 // Query reads every component from one committed SQLite snapshot.
 func (s *Store) Query(ctx context.Context, period *Range) (Report, error) {
+	return s.querySnapshot(ctx, period, nil)
+}
+
+func (s *Store) querySnapshot(ctx context.Context, period *Range, afterTotal func()) (Report, error) {
 	var out Report
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -61,8 +66,14 @@ func (s *Store) Query(ctx context.Context, period *Range) (Report, error) {
 	if err = readTotal(tx.QueryRowContext(ctx, `SELECT `+totals+` FROM usage`+where, args...), &out.Total); err != nil {
 		return out, err
 	}
-	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(timestamp IS NULL),0),COALESCE(SUM(provider IS NULL),0),COALESCE(SUM(model IS NULL),0) FROM usage`+where, args...).Scan(&out.Unbucketed, &out.UnknownProvider, &out.UnknownModel); err != nil {
+	if afterTotal != nil {
+		afterTotal()
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(timestamp IS NULL),0),COALESCE(SUM(provider IS NULL),0),COALESCE(SUM(model IS NULL),0),SUM(CASE WHEN timestamp IS NULL THEN cost END) FROM usage`+where, args...).Scan(&out.Unbucketed, &out.UnknownProvider, &out.UnknownModel, &out.UnbucketedCost); err != nil {
 		return out, err
+	}
+	if out.UnbucketedCost != nil && math.IsInf(*out.UnbucketedCost, 0) {
+		out.UnbucketedCost = nil
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT strftime('%Y-%m-%d',timestamp/1000.0,'unixepoch'),`+totals+` FROM usage`+where+` GROUP BY 1 ORDER BY 1`, args...)
 	if err != nil {

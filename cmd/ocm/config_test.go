@@ -49,3 +49,23 @@ func TestHelpVersionBypassConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestDisabledHistoryIgnoresDiagnosticOptIn(t *testing.T) {
+	config, state := t.TempDir(), t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("PATH", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(config, "ocm"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(config, "ocm/config.yaml"), []byte("history: {enabled: false, diagnostics: {enabled: true}}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadData(false, "")
+	if err == nil {
+		t.Fatal("expected missing source")
+	}
+	if _, err = os.Stat(filepath.Join(state, "ocm")); !os.IsNotExist(err) {
+		t.Fatal("disabled history touched diagnostic files", err)
+	}
+}

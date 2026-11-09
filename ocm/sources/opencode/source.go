@@ -13,7 +13,13 @@ import (
 )
 
 func Discover() (*Store, error) {
-	storage, err := discover()
+	return DiscoverContext(context.Background())
+}
+
+func DiscoverContext(ctx context.Context) (*Store, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	storage, err := discoverStorage(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("resolving db path: %w", err)
 	}

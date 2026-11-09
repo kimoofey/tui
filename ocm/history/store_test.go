@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"os/exec"
@@ -262,5 +263,77 @@ func TestArchiveCorruptOrUnknownNeverReset(t *testing.T) {
 				t.Fatal("archive modified")
 			}
 		})
+	}
+}
+
+func TestQuerySnapshotAcrossConcurrentCommit(t *testing.T) {
+	s, path := openTest(t)
+	ctx := context.Background()
+	o := observation()
+	if err := s.Capture(ctx, o, time.UnixMilli(123)); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	// The separate writer commits after the total query, before every other
+	// component query. All components must still see the reader's original snapshot.
+	r, err := s.querySnapshot(ctx, nil, func() {
+		if _, err := writer.Exec(`BEGIN; UPDATE usage SET cost=9,model='new'; UPDATE sessions SET captured=999,status='changed'; COMMIT;`); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err != nil || *r.Cost != 2 || *r.Days[0].Cost != 2 || *r.Models[0].Cost != 2 || *r.Models[0].Name != "m" || r.Sessions[0].Captured != 123 || r.Sessions[0].Status != "" {
+		t.Fatal(r, err)
+	}
+	if next := report(t, s); *next.Cost != 9 || next.Sessions[0].Captured != 999 {
+		t.Fatal(next)
+	}
+}
+func TestUTCRangesAndUnknownBuckets(t *testing.T) {
+	s, _ := openTest(t)
+	o := observation()
+	o.Usage = nil
+	for i, at := range []int64{-1, 0, 86400000} {
+		u := observation().Usage[0]
+		u.ID = fmt.Sprint(i)
+		u.Timestamp = ptr(at)
+		o.Usage = append(o.Usage, u)
+	}
+	u := observation().Usage[0]
+	u.ID = "unbucketed"
+	u.Timestamp = nil
+	o.Usage = append(o.Usage, u)
+	if err := s.Capture(context.Background(), o, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.Query(context.Background(), &Range{Start: 0, End: 86400000})
+	if err != nil || r.Rows != 1 || len(r.Days) != 1 || r.Days[0].UTC != "1970-01-01" || r.Unbucketed != 0 {
+		t.Fatal(r, err)
+	}
+	r = report(t, s)
+	if r.Rows != 4 || len(r.Days) != 3 || r.UnbucketedCost == nil || *r.UnbucketedCost != 2 {
+		t.Fatal(r)
+	}
+}
+
+func TestDiagnosticsConfigOptIn(t *testing.T) {
+	for _, yaml := range []string{"{}", "history: {enabled: true}", "history: {enabled: true, diagnostics: {enabled: false}}"} {
+		c, err := ReadConfig("fixture", func(string) ([]byte, error) { return []byte(yaml), nil })
+		if err != nil || c.History.Diagnostics.Enabled {
+			t.Fatal(c, err)
+		}
+	}
+	c, err := ReadConfig("fixture", func(string) ([]byte, error) {
+		return []byte("history: {enabled: true, diagnostics: {enabled: true}}"), nil
+	})
+	if err != nil || !c.History.Diagnostics.Enabled {
+		t.Fatal(c, err)
+	}
+	_, err = ReadConfig("fixture", func(string) ([]byte, error) { return []byte("history: {diagnostics: {typo: true}}"), nil })
+	if err == nil {
+		t.Fatal("unknown diagnostic field accepted")
 	}
 }

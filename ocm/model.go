@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -16,47 +17,49 @@ import (
 )
 
 type keyMap struct {
-	Up     key.Binding
-	Down   key.Binding
-	PgUp   key.Binding
-	PgDn   key.Binding
-	Space  key.Binding
-	Esc    key.Binding
-	Enter  key.Binding
-	Reload key.Binding
-	Delete key.Binding
-	Vacuum key.Binding
-	Prune  key.Binding
-	Help   key.Binding
-	Quit   key.Binding
+	History key.Binding
+	Up      key.Binding
+	Down    key.Binding
+	PgUp    key.Binding
+	PgDn    key.Binding
+	Space   key.Binding
+	Esc     key.Binding
+	Enter   key.Binding
+	Reload  key.Binding
+	Delete  key.Binding
+	Vacuum  key.Binding
+	Prune   key.Binding
+	Help    key.Binding
+	Quit    key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Enter, k.Space, k.Reload, k.Delete, k.Help, k.Quit}
+	return []key.Binding{k.Enter, k.Space, k.Reload, k.Delete, k.History, k.Help, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PgUp, k.PgDn},
 		{k.Enter, k.Space, k.Esc, k.Reload, k.Delete},
-		{k.Vacuum, k.Prune, k.Help, k.Quit},
+		{k.Vacuum, k.Prune, k.History, k.Help, k.Quit},
 	}
 }
 
 var defaultKeys = keyMap{
-	Up:     key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
-	Down:   key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
-	PgUp:   key.NewBinding(key.WithKeys("pgup", "b"), key.WithHelp("pgup/b", "page up")),
-	PgDn:   key.NewBinding(key.WithKeys("pgdown", "f"), key.WithHelp("pgdn/f", "page down")),
-	Space:  key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "mark")),
-	Esc:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
-	Enter:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
-	Reload: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reload")),
-	Delete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
-	Vacuum: key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "vacuum db")),
-	Prune:  key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prune orphans")),
-	Help:   key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "more keys")),
-	Quit:   key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+	History: key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "history")),
+	Up:      key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
+	Down:    key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
+	PgUp:    key.NewBinding(key.WithKeys("pgup", "b"), key.WithHelp("pgup/b", "page up")),
+	PgDn:    key.NewBinding(key.WithKeys("pgdown", "f"), key.WithHelp("pgdn/f", "page down")),
+	Space:   key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "mark")),
+	Esc:     key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	Enter:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+	Reload:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reload")),
+	Delete:  key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	Vacuum:  key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "vacuum db")),
+	Prune:   key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prune orphans")),
+	Help:    key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "more keys")),
+	Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }
 
 // Column widths (characters).
@@ -148,6 +151,7 @@ const (
 
 // Model is the bubbletea model for the session browser.
 type Model struct {
+	history         historyState
 	table           table.Model
 	sessions        []session.Session
 	selected        map[session.Ref]bool
@@ -199,6 +203,8 @@ func (m Model) currentOverhead() int {
 }
 
 type Options struct {
+	History      service.HistoryBackend
+	Now          func() time.Time
 	Sessions     []session.Session
 	TotalCount   int
 	DBUsed       int64
@@ -269,6 +275,13 @@ func New(opts Options, termWidth, termHeight int) Model {
 		metricsKnown:  opts.MetricsKnown,
 		diagnostics:   opts.Diagnostics,
 	}
+	if opts.History != nil {
+		now := opts.Now
+		if now == nil {
+			now = time.Now
+		}
+		m.history = historyState{backend: opts.History, viewportHeight: termHeight, active: len(opts.Sessions) == 0, month: utcMonth(now()), now: now, initial: true, queryID: 1, querying: true, refreshID: 1, refreshing: true}
+	}
 	m.updateKeys()
 	if len(m.diagnostics) > 0 {
 		m.status = m.diagnostics[0].Error()
@@ -314,6 +327,9 @@ func buildTable(sessions []session.Session, selected map[session.Ref]bool, termW
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.history.backend != nil {
+		return tea.Batch(tea.RequestBackgroundColor, m.history.queryCommand(m.history.queryID), m.history.refreshCommand(m.history.refreshID))
+	}
 	if m.app != nil && m.app.HistoryEnabled() {
 		return tea.Batch(tea.RequestBackgroundColor, waitHistory(m.app))
 	}
@@ -321,17 +337,73 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.history.backend != nil {
+		switch event := msg.(type) {
+		case historyQueriedMsg:
+			if event.id == m.history.queryID {
+				if event.warning != "" {
+					m.history.diagnosticsWarning = event.warning
+				}
+				m.history.querying = false
+				m.history.queryErr = event.err
+				if event.err == nil {
+					m.history.report = event.report
+					m.history.hasReport = true
+					m.history.shownRange = event.label
+				}
+			}
+			return m, nil
+		case historySourceMsg:
+			cmd := m.applyHistorySource(event)
+			return m, cmd
+		case tea.KeyPressMsg:
+			if m.history.refreshing && !m.history.active {
+				switch event.String() {
+				case "d", "v", "p":
+					return m, nil
+				}
+			}
+			if event.String() == "h" && m.foregroundBusy() {
+				return m, nil
+			}
+			if m.history.active {
+				cmd := m.historyKey(event)
+				return m, cmd
+			}
+			if event.String() == "h" && !m.foregroundBusy() {
+				m.history.active = true
+				m.history.interacted = true
+				cmd := m.history.query()
+				return m, cmd
+			}
+			if event.String() == "r" && !m.foregroundBusy() {
+				cmd := tea.Batch(m.history.refresh(), m.history.query())
+				return m, cmd
+			}
+		case tea.MouseWheelMsg:
+			if m.history.active {
+				delta := ui.MouseScrollLines
+				if event.Button == tea.MouseWheelUp {
+					delta = -delta
+				}
+				m.history.offset = max(0, min(m.history.offset+delta, max(0, len(m.history.lines(m.width))-max(1, m.height-2))))
+				return m, nil
+			}
+		}
+	}
+
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.history.viewportHeight = msg.Height
 		m.help.SetWidth(msg.Width - 2)
 		cols, rows := buildTable(m.sessions, m.selected, m.width-borderWidth, m.homeDir)
 		m.table.SetColumns(cols)
 		m.table.SetRows(rows)
-		m.table.SetHeight(m.height - m.currentOverhead())
-		m.table.SetWidth(m.width - borderWidth)
+		m.table.SetHeight(max(1, m.height-m.currentOverhead()))
+		m.table.SetWidth(max(1, m.width-borderWidth))
 
 	case tea.MouseWheelMsg:
 		if m.bulkDeleting || m.reloading || m.vacuuming || m.pruning {
@@ -402,7 +474,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			if m.help.ShowAll {
 				m.help.ShowAll = false
-				m.table.SetHeight(m.height - m.currentOverhead())
+				m.table.SetHeight(max(1, m.height-m.currentOverhead()))
 				return m, nil
 			}
 			if len(m.selected) > 0 {
@@ -468,7 +540,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "?":
 			m.help.ShowAll = !m.help.ShowAll
-			m.table.SetHeight(m.height - m.currentOverhead())
+			m.table.SetHeight(max(1, m.height-m.currentOverhead()))
 			return m, nil
 		}
 
@@ -528,6 +600,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case historyCollectedMsg:
+		if msg.app != nil && msg.app != m.app {
+			return m, nil
+		}
+		if m.history.backend != nil {
+			if msg.status.Revision < m.history.collection.Revision {
+				return m, waitHistory(m.app)
+			}
+			if msg.warning != "" {
+				m.history.diagnosticsWarning = msg.warning
+			}
+			m.history.collection = msg.status
+			if m.app != nil {
+				m.capabilities = m.app.Capabilities()
+				m.updateKeys()
+			}
+			cmd := tea.Batch(waitHistory(m.app), m.history.query())
+			return m, cmd
+		}
 		if m.app != nil {
 			m.capabilities = m.app.Capabilities()
 			m.updateKeys()
@@ -645,6 +735,9 @@ func (m *Model) applyData(msg reloadedMsg) {
 	m.deletePhase = deleteNone
 	m.rebuildRows()
 	if len(m.sessions) == 0 {
+		if m.history.backend != nil {
+			m.history.active = true
+		}
 		m.table.SetCursor(0)
 	} else if m.table.Cursor() >= len(m.sessions) {
 		m.table.SetCursor(len(m.sessions) - 1)
@@ -652,6 +745,7 @@ func (m *Model) applyData(msg reloadedMsg) {
 }
 
 func (m *Model) updateKeys() {
+	m.keys.History.SetEnabled(m.history.backend != nil)
 	m.keys.Enter.SetEnabled(m.capabilities.Resume)
 	m.keys.Delete.SetEnabled(m.capabilities.Delete)
 	m.keys.Vacuum.SetEnabled(m.capabilities.Vacuum.Available)
@@ -659,6 +753,9 @@ func (m *Model) updateKeys() {
 }
 
 func (m Model) View() tea.View {
+	if m.history.backend != nil && m.history.active {
+		return m.historyView()
+	}
 	titleBar := m.renderTitleBar()
 	var statusText string
 	switch {

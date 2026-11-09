@@ -55,7 +55,7 @@ func runBrowser(opts ocm.Options, program func(tea.Model) error) int {
 	if opts.Close != nil {
 		defer func() { _ = opts.Close() }()
 	}
-	if len(opts.Sessions) == 0 {
+	if len(opts.Sessions) == 0 && opts.History == nil {
 		fmt.Println("No OpenCode sessions found.")
 		return 0
 	}

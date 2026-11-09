@@ -132,7 +132,7 @@ func (s *Store) CaptureHistory(ctx context.Context, id string) (_ session.Observ
 			return session.Observation{}, err
 		}
 		if raw == nil {
-			return session.Observation{}, errors.New("malformed accounting eligibility")
+			return session.Observation{}, fmt.Errorf("%w: malformed accounting eligibility", session.ErrHistoryEligibility)
 		}
 		var fields [7]json.RawMessage
 		if err = json.Unmarshal([]byte(*raw), &fields); err != nil {
@@ -144,7 +144,7 @@ func (s *Store) CaptureHistory(ctx context.Context, id string) (_ session.Observ
 				role = discriminator
 			}
 			if role == nil {
-				return session.Observation{}, fmt.Errorf("%s session %q message %q: unknown message role (missing, malformed or unsupported discriminator); capture rejected", table, id, u.ID)
+				return session.Observation{}, fmt.Errorf("%s session %q message %q: %w (missing, malformed or unsupported discriminator); capture rejected", table, id, u.ID, session.ErrHistoryRole)
 			}
 			switch *role {
 			case "user", "system", "tool":
@@ -156,9 +156,9 @@ func (s *Store) CaptureHistory(ctx context.Context, id string) (_ session.Observ
 				if table == "session_v2" {
 					continue
 				}
-				return session.Observation{}, fmt.Errorf("%s session %q message %q: unknown message role; capture rejected", table, id, u.ID)
+				return session.Observation{}, fmt.Errorf("%s session %q message %q: %w; capture rejected", table, id, u.ID, session.ErrHistoryRole)
 			default:
-				return session.Observation{}, fmt.Errorf("%s session %q message %q: unknown message role (missing, malformed or unsupported discriminator); capture rejected", table, id, u.ID)
+				return session.Observation{}, fmt.Errorf("%s session %q message %q: %w (missing, malformed or unsupported discriminator); capture rejected", table, id, u.ID, session.ErrHistoryRole)
 			}
 			if fork != nil {
 				if u.Timestamp == nil {
@@ -170,11 +170,11 @@ func (s *Store) CaptureHistory(ctx context.Context, id string) (_ session.Observ
 			}
 		} else {
 			if discriminator == nil || *discriminator != "session.usage.recorded.1" {
-				return session.Observation{}, errors.New("unknown usage event type")
+				return session.Observation{}, fmt.Errorf("%w: unknown usage event type", session.ErrHistoryEligibility)
 			}
 			source := textValue(fields[1])
 			if source == nil {
-				return session.Observation{}, errors.New("unknown usage event source")
+				return session.Observation{}, fmt.Errorf("%w: unknown usage event source", session.ErrHistoryEligibility)
 			}
 			if *source != "compaction" {
 				continue
@@ -204,7 +204,7 @@ func (s *Store) CaptureHistory(ctx context.Context, id string) (_ session.Observ
 		u.CacheWrite = counterValue(tokens.Cache.Write)
 		key := [2]string{u.Kind, u.ID}
 		if u.ID == "" || seen[key] {
-			return session.Observation{}, errors.New("duplicate or empty usage identity")
+			return session.Observation{}, fmt.Errorf("%w: duplicate or empty usage identity", session.ErrHistoryDuplicate)
 		}
 		seen[key] = true
 		o.Usage = append(o.Usage, u)

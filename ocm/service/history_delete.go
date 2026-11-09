@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kimoofey/tui/ocm/history/diagnostics"
+	"time"
 
 	"github.com/kimoofey/tui/ocm/session"
 )
@@ -14,7 +16,12 @@ type deletionGroup struct {
 	members map[session.Ref]bool
 }
 
-func (s *Service) deleteWithHistory(ctx context.Context, refs []session.Ref, opts LoadOptions) DeleteResult {
+func (s *Service) deleteWithHistory(ctx context.Context, refs []session.Ref, opts LoadOptions) (result DeleteResult) {
+	start := time.Now()
+	s.history.diagnostics.Record(diagnostics.Event{Kind: diagnostics.Deletion, Stage: diagnostics.Begin, Count: len(refs)})
+	defer func() {
+		s.history.diagnostics.Record(diagnostics.Event{Kind: diagnostics.Deletion, Code: diagnosticCode(result.Err), Count: result.Count, Duration: time.Since(start)})
+	}()
 	if _, ok := s.source.(session.HistoryDeleter); !ok || s.history.source == nil {
 		return DeleteResult{Err: unavailable("history guarded deletion", session.Availability{Reason: "source does not expose a supported history deletion scope"})}
 	}
@@ -34,7 +41,7 @@ func (s *Service) deleteWithHistory(ctx context.Context, refs []session.Ref, opt
 	if err := h.serial.acquire(ctx, true); err != nil {
 		return DeleteResult{Err: err}
 	}
-	result := s.deleteHistoryBatch(ctx, refs, opts)
+	result = s.deleteHistoryBatch(ctx, refs, opts)
 	h.serial.release()
 	if result.Count > 0 {
 		s.RequestHistory()
@@ -61,7 +68,9 @@ func (s *Service) deleteHistoryBatch(ctx context.Context, refs []session.Ref, op
 			}
 			seen[ref] = true
 			callCtx, cancel := context.WithTimeout(ctx, s.history.timeout)
+			start := time.Now()
 			scope, err := impact.HistoryDeletionScope(callCtx, ref)
+			s.history.diagnostics.Record(diagnostics.Event{Kind: diagnostics.Deletion, Stage: diagnostics.Scope, Code: diagnosticCode(err), SessionID: ref.ID, Count: len(scope), Duration: time.Since(start)})
 			cancel()
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: discovering deletion scope: %w", ref.ID, err))
@@ -109,7 +118,9 @@ func (s *Service) deleteHistoryBatch(ctx context.Context, refs []session.Ref, op
 				callCtx, cancel := context.WithTimeout(ctx, deleteTimeout)
 				err = callCtx.Err()
 				if err == nil {
+					start := time.Now()
 					err = source.Delete(callCtx, g.target.ID)
+					s.history.diagnostics.Record(diagnostics.Event{Kind: diagnostics.Deletion, Stage: diagnostics.Native, Code: diagnosticCode(err), SessionID: g.target.ID, Duration: time.Since(start)})
 				}
 				cancel()
 			}
@@ -121,7 +132,9 @@ func (s *Service) deleteHistoryBatch(ctx context.Context, refs []session.Ref, op
 		}
 	}
 	var err error
+	start := time.Now()
 	result.Snapshot, err = s.load(ctx, opts, false)
+	s.history.diagnostics.Record(diagnostics.Event{Kind: diagnostics.Deletion, Stage: diagnostics.Reload, Code: diagnosticCode(err), Duration: time.Since(start)})
 	result.Err = errors.Join(append(errs, err)...)
 	return result
 }

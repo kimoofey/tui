@@ -1,6 +1,9 @@
 package session
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // HistoryBinding identifies an accounting source independently of runtime Ref routing.
 type HistoryBinding struct{ Path, Schema string }
@@ -34,3 +37,7 @@ type HistoryDeleter interface {
 	HistoryDeletionAvailability(context.Context) Availability
 	HistoryDeletionScope(context.Context, Ref) ([]Ref, error)
 }
+
+var ErrHistoryRole = errors.New("unknown message role")
+var ErrHistoryEligibility = errors.New("unknown accounting eligibility")
+var ErrHistoryDuplicate = errors.New("duplicate usage identity")

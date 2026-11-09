@@ -6,7 +6,9 @@ Interactive TUI for browsing and managing your OpenCode sessions. Lists all sess
 
 ## Requirements
 
-OpenCode V1 or V2 installed and at least one session created. OCM asks the
+For source browsing, install OpenCode V1 or V2 and create a session. With history
+enabled, saved accounting remains available without OpenCode or source sessions.
+OCM asks the
 `opencode` executable on your `PATH` for its storage locations using
 `opencode debug paths`. The usual database path is:
 
@@ -78,6 +80,7 @@ session removes its cost history from these totals.
 | `Space`           | Mark / unmark row for bulk action                                       |
 | `Enter`           | Open session in OpenCode                                                |
 | `r`               | Reload sessions and stats from the database                             |
+| `h`               | Switch browser / History when history is enabled                        |
 | `d`               | Delete session (or all marked) — press `d` again to confirm             |
 | `v`               | Vacuum database — reclaims free pages (skipped if < 1 MB reclaimable)   |
 | `p`               | Prune orphaned diff files — removes leftover files for deleted sessions |
@@ -96,11 +99,10 @@ disabled for custom and channel-specific database files because legacy diff
 files do not identify which database owns them. Missing legacy diff directories
 require no cleanup.
 
-### History storage (implementation preview)
+## History
 
-History is disabled by default. The storage/collection milestone is implemented;
-Guarded V2 deletion is implemented; History navigation and archive-only startup
-remain pending in plan 004. The enabled feature is not yet release-ready.
+History is disabled by default. When enabled, OCM retains observed accounting
+across source deletions and shows UTC daily costs and provider/model totals.
 
 To opt in, add this to `$XDG_CONFIG_HOME/ocm/config.yaml` (or
 `~/.config/ocm/config.yaml` when XDG_CONFIG_HOME is empty or unset) and restart:
@@ -111,7 +113,7 @@ history:
 ```
 
 Unknown configuration fields, malformed YAML and multiple documents are errors.
-Help/version bypass configuration. Mock builds use their deterministic browser data
+Help/version bypass configuration. Mock builds offer an in-memory History preview
 and never read user history configuration or archives.
 
 Enabled startup and successful explicit browser reloads request background
@@ -184,3 +186,82 @@ can race capture/deletion. There is no atomic source/archive/native transaction 
 recovery journal. Killing OCM can leave a native deletion process running: let it
 finish before retrying. Startup never retries destructive actions automatically.
 Usage removed before capture cannot be recovered by rerunning collection.
+
+
+### History navigation and source retry
+
+Press `h` to switch between the browser and History. Switching preserves browser
+marks, cursor and scrolling; it is ignored during confirmation or foreground
+mutations. History initially shows the current UTC month:
+
+| Key | Action |
+| --- | --- |
+| `[` / `]` | Previous / next UTC month; from all-time, return to current month |
+| `0` | Current UTC month |
+| `a` | All captured time, including usage without timestamps |
+| `r` | Reload/retry the source, request collection and reload saved accounting |
+| `↑/k` / `↓/j` | Scroll days, model breakdown and status |
+| `esc` / `h` | Return to the browser when source sessions are available |
+| `?` | Toggle History help |
+| `q` / `ctrl+c` | Quit |
+
+History shows **Recorded USD (approximate)**, daily horizontal bars with numeric
+amounts, provider/model totals, last capture, unknown counts and saved stale/failed
+status. Unknown costs stay unknown rather than becoming zero. All-time unbucketed
+cost is included in the total and shown separately from dated bars. The current
+month/day is partial; coverage always includes only successfully observed usage.
+No captured usage is not proof of zero spend. Failed archive queries keep the
+previous result visible with an error and its original range label.
+
+Enabled startup opens the archive first and discovers/loads the source in the
+background. Saved history can be used during discovery and collection. With no
+usable source or no sessions, OCM stays in History, including for an empty archive;
+source errors stay visible, and source actions are unavailable. Press `r` to retry
+discovery/loading. A recovered source restores the browser and its valid
+capabilities; a failed retry leaves saved accounting available. While a source
+refresh is running, new browser delete/vacuum/prune actions wait for it to finish.
+Archive corruption, unsupported schema, permissions or lock contention still fail
+startup clearly. Archive access never requires a working OpenCode installation.
+
+### Optional beta diagnostics
+
+Diagnostic logging is a separate opt-in and is off by default. Enable it alongside
+History in `config.yaml`, then restart OCM:
+
+```yaml
+history:
+  enabled: true
+  diagnostics:
+    enabled: true
+```
+
+The local JSON Lines log is `$XDG_STATE_HOME/ocm/history.log`, falling back to
+`~/.local/state/ocm/history.log` when XDG_STATE_HOME is unset or empty. The directory
+is private (`0700`), and log, backup and sibling lock files use `0600`. Files rotate
+at 1 MiB, keeping three backups (`history.log.1` through `.3`). A nonblocking sibling
+lock coordinates writers that share the log location. Nothing is uploaded.
+
+Events describe startup/shutdown, source discovery/retry, source loading,
+collection, capture, archive queries and guarded deletion stages. Fields are
+allowlisted: fixed event/stage/error codes, UTC time, application version, schema
+family, durations, counts and random run IDs. Session/message correlation uses
+keyed hashes with a fresh random key each run; raw native IDs are never written.
+For example, an unrecognized role is classified as `unknown_role` without recording
+the original error text.
+
+Logs exclude conversation text, titles, conversation directories, database paths,
+provider/model names, spend, environment variables, command arguments and native
+command output. Raw errors and config/source objects are never serialized. These
+exclusions apply to diagnostics; the accounting archive still retains its documented
+metadata and bound source path, and local UI errors can contain paths/native IDs.
+
+Explicitly requested logging that cannot initialize fails startup with an actionable
+error. A later write/rotation failure stops logging and shows a warning on the next
+History response; it does not change accounting results or deletion safeguards.
+Logging resources close after workers stop. When History is disabled, the diagnostic
+flag is ignored and no log path is accessed. Help/version and mock builds also avoid
+user diagnostic files.
+
+For troubleshooting, manually share only the relevant log/rotated files after
+reviewing them. They still reveal operational timestamps and counts, even without
+conversation content. OCM has no automatic upload or telemetry.
