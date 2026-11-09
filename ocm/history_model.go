@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/kimoofey/tui/internal/ui"
@@ -112,6 +114,19 @@ func (m Model) sessionsLoadingView() tea.View {
 func (m Model) foregroundBusy() bool {
 	return m.bulkDeleting || m.reloading || m.vacuuming || m.pruning || m.deletePhase == deletePending || m.vacuumPhase || m.prunePhase
 }
+
+func (m Model) historyBodySize() (int, int) {
+	footerHeight := lipgloss.Height(m.historyFooter())
+	if m.width < 5 || m.height < 5 {
+		return max(1, m.width), max(0, m.height-1-footerHeight)
+	}
+	return m.width - 4, max(1, m.height-3-footerHeight)
+}
+
+func (m Model) historyMaxOffset() int {
+	width, height := m.historyBodySize()
+	return max(0, len(m.history.lines(width))-max(1, height))
+}
 func (m *Model) historyKey(msg tea.KeyPressMsg) tea.Cmd {
 	h := &m.history
 	h.interacted = true
@@ -123,13 +138,13 @@ func (m *Model) historyKey(msg tea.KeyPressMsg) tea.Cmd {
 			h.active = false
 		}
 		return nil
-	case "[", "]":
+	case "[", "]", "left", "right":
 		if h.all {
 			h.all = false
 			h.month = utcMonth(h.now())
 		} else {
 			delta := -1
-			if msg.String() == "]" {
+			if msg.String() == "]" || msg.String() == "right" {
 				delta = 1
 			}
 			h.month = h.month.AddDate(0, delta, 0)
@@ -154,7 +169,7 @@ func (m *Model) historyKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "up", "k":
 		h.offset = max(0, h.offset-1)
 	case "down", "j":
-		h.offset = min(h.offset+1, max(0, len(h.lines(m.width))-max(1, m.height-3)))
+		h.offset = min(h.offset+1, m.historyMaxOffset())
 	case "?":
 		h.showHelp = !h.showHelp
 	}
@@ -236,7 +251,7 @@ func (h historyState) lines(width int) []string {
 	if h.all {
 		label = "All time"
 	}
-	lines := []string{label + " · UTC", "Coverage limited to successfully observed usage."}
+	lines := []string{label + " · UTC", "← previous month · next month →"}
 	if h.setup.pending {
 		lines = append(lines, "Initial import incomplete; coverage may be partial. Press r to start/retry.")
 	}
@@ -285,7 +300,32 @@ func (h historyState) lines(width int) []string {
 	if len(r.Sessions) > 0 {
 		captured = time.UnixMilli(last).UTC().Format("2006-01-02 15:04:05 UTC")
 	}
-	lines = append(lines, "Last capture: "+captured, fmt.Sprintf("Saved status: %d stale · %d failed", stale, failed))
+	lines = append(lines, "", "Recorded spending", historyAmount(r.Cost),
+		fmt.Sprintf("Unknown: %d cost · %d provider · %d model", r.UnknownCost, r.UnknownProvider, r.UnknownModel), "", "Provider / model totals")
+	models := append([]history.Model(nil), r.Models...)
+	sort.SliceStable(models, func(i, j int) bool {
+		if models[i].Cost == nil || math.IsNaN(*models[i].Cost) || math.IsInf(*models[i].Cost, 0) {
+			return false
+		}
+		if models[j].Cost == nil || math.IsNaN(*models[j].Cost) || math.IsInf(*models[j].Cost, 0) {
+			return true
+		}
+		return *models[i].Cost > *models[j].Cost
+	})
+	maximumModel := 0.0
+	for _, model := range models {
+		if model.Cost != nil && !math.IsNaN(*model.Cost) && !math.IsInf(*model.Cost, 0) {
+			maximumModel = math.Max(maximumModel, *model.Cost)
+		}
+	}
+	for _, model := range models {
+		bar := ""
+		if maximumModel > 0 && model.Cost != nil && !math.IsNaN(*model.Cost) && !math.IsInf(*model.Cost, 0) && *model.Cost > 0 {
+			bar = strings.Repeat("█", int(*model.Cost/maximumModel*float64(max(0, min(20, width-30)))))
+		}
+		lines = append(lines, fmt.Sprintf("%s · %s  %s %s (%d unknown costs)", groupName(model.Provider), groupName(model.Name), historyAmount(model.Cost), bar, model.UnknownCost))
+	}
+	lines = append(lines, "", "Coverage limited to successfully observed usage.", "Last capture: "+captured, fmt.Sprintf("Saved status: %d stale · %d failed", stale, failed))
 	if stale > 0 {
 		lines = append(lines, "Stale: source records removed or known fields lost; saved usage retained.")
 	}
@@ -297,49 +337,45 @@ func (h historyState) lines(width int) []string {
 	} else if r.Rows == 0 {
 		lines = append(lines, "No captured usage in this range")
 	}
-	lines = append(lines, "Recorded total: "+historyAmount(r.Cost), fmt.Sprintf("Unknown: %d cost · %d provider · %d model", r.UnknownCost, r.UnknownProvider, r.UnknownModel), fmt.Sprintf("Unbucketed timestamps: %d · %s (all-time only)", r.Unbucketed, historyAmount(r.UnbucketedCost)), "", "Daily recorded USD")
-	maximum, allMaximum := 0.0, 0.0
-	row := 0
-	for _, line := range lines {
-		row += len(strings.Split(lipgloss.NewStyle().Width(width).Render(safeLabel(line)), "\n"))
-	}
-	for _, d := range r.Days {
-		label := fmt.Sprintf("%s %s", d.UTC, historyAmount(d.Cost))
-		if d.UnknownCost > 0 {
-			label += fmt.Sprintf(" (%d unknown)", d.UnknownCost)
+	lines = append(lines, fmt.Sprintf("Unbucketed timestamps: %d · %s (all-time only)", r.Unbucketed, historyAmount(r.UnbucketedCost)))
+	if !h.all && h.shownRange != "All time" {
+		lines = append(lines, "", "Daily recorded USD")
+		maximum, allMaximum := 0.0, 0.0
+		row := 0
+		for _, line := range lines {
+			row += len(strings.Split(lipgloss.NewStyle().Width(width).Render(safeLabel(line)), "\n"))
 		}
-		rows := len(strings.Split(lipgloss.NewStyle().Width(width).Render(label), "\n"))
-		if d.Cost != nil && !math.IsInf(*d.Cost, 0) {
-			allMaximum = math.Max(allMaximum, *d.Cost)
-			if h.viewportHeight <= 0 || (row < h.offset+max(1, h.viewportHeight-2) && row+rows > h.offset) {
-				maximum = math.Max(maximum, *d.Cost)
+		for _, d := range r.Days {
+			label := fmt.Sprintf("%s %s", d.UTC, historyAmount(d.Cost))
+			if d.UnknownCost > 0 {
+				label += fmt.Sprintf(" (%d unknown)", d.UnknownCost)
 			}
+			rows := len(strings.Split(lipgloss.NewStyle().Width(width).Render(label), "\n"))
+			if d.Cost != nil && !math.IsInf(*d.Cost, 0) {
+				allMaximum = math.Max(allMaximum, *d.Cost)
+				if h.viewportHeight <= 0 || (row < h.offset+max(1, h.viewportHeight-4) && row+rows > h.offset) {
+					maximum = math.Max(maximum, *d.Cost)
+				}
+			}
+			row += rows
 		}
-		row += rows
-	}
-	if maximum == 0 {
-		maximum = allMaximum
-	}
-	barWidth := max(0, min(40, width-28))
-	for _, d := range r.Days {
-		amount := historyAmount(d.Cost)
-		bar := ""
-		if maximum > 0 && d.Cost != nil && *d.Cost > 0 {
-			n := int((*d.Cost / maximum) * float64(barWidth))
-			bar = strings.Repeat("█", max(0, min(n, barWidth)))
+		if maximum == 0 {
+			maximum = allMaximum
 		}
-		row := fmt.Sprintf("%s %s %s", d.UTC, amount, bar)
-		if d.UnknownCost > 0 {
-			row += fmt.Sprintf(" (%d unknown)", d.UnknownCost)
+		barWidth := max(0, min(40, width-28))
+		for _, d := range r.Days {
+			amount := historyAmount(d.Cost)
+			bar := ""
+			if maximum > 0 && d.Cost != nil && *d.Cost > 0 {
+				n := int((*d.Cost / maximum) * float64(barWidth))
+				bar = strings.Repeat("█", max(0, min(n, barWidth)))
+			}
+			row := fmt.Sprintf("%s %s %s", d.UTC, amount, bar)
+			if d.UnknownCost > 0 {
+				row += fmt.Sprintf(" (%d unknown)", d.UnknownCost)
+			}
+			lines = append(lines, row)
 		}
-		lines = append(lines, row)
-	}
-	lines = append(lines, "", "Provider / model totals")
-	for _, model := range r.Models {
-		lines = append(lines, fmt.Sprintf("%s · %s  %s (%d unknown costs)", groupName(model.Provider), groupName(model.Name), historyAmount(model.Cost), model.UnknownCost))
-	}
-	if h.showHelp {
-		lines = append(lines, "", "[ / ] previous / next UTC month · 0 current month · a all time", "r refresh source and archive · ↑/↓ or j/k scroll", "esc / h back to browser when available · ? help · q / ctrl+c quit")
 	}
 	// Wrap metadata rather than truncate it: unknown/error/quality information
 	// remains accessible by scrolling on narrow terminals.
@@ -353,16 +389,51 @@ func wrapHistoryLines(lines []string, width int) []string {
 	}
 	return wrapped
 }
+func (m Model) historyFooter() string {
+	help := m.help
+	help.SetWidth(max(1, m.width-2))
+	month := key.NewBinding(key.WithKeys("left", "right", "[", "]"), key.WithHelp("←/→, [/]", "change month"))
+	current := key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "current month"))
+	all := key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "all time"))
+	refresh := key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh"))
+	scroll := key.NewBinding(key.WithKeys("up", "down", "j", "k"), key.WithHelp("↑/↓, j/k", "scroll"))
+	back := key.NewBinding(key.WithKeys("h", "esc"), key.WithHelp("h/esc", "back"))
+	toggle := key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help"))
+	quit := key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q/ctrl+c", "quit"))
+	var footer string
+	if m.history.showHelp {
+		footer = lipgloss.JoinVertical(lipgloss.Left, ui.StatusBarStyle().Render(""), ui.StatusBarStyle().Render(help.FullHelpView([][]key.Binding{{month, current, all, refresh}, {scroll, back, toggle, quit}})))
+	} else {
+		footer = ui.StatusBarStyle().Render(help.ShortHelpView([]key.Binding{month, current, all, refresh, back, toggle}))
+	}
+	maxHeight := max(1, m.height-4)
+	return lipgloss.NewStyle().MaxHeight(maxHeight).Render(footer)
+}
+
 func (m Model) historyView() tea.View {
 	width := max(1, m.width)
 	height := max(1, m.height)
-	title := lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true).Render("Recorded USD (approximate)")
-	lines := m.history.lines(width)
-	bodyHeight := max(0, height-2)
+	title := ui.TitleBarStyle().Render(lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true).Render("ocm") + "  " + lipgloss.NewStyle().Foreground(ui.ColorText).Render("History · Recorded USD (approximate)"))
+	bodyWidth, bodyHeight := m.historyBodySize()
+	lines := m.history.lines(bodyWidth)
 	start := min(m.history.offset, max(0, len(lines)-bodyHeight))
 	end := min(len(lines), start+bodyHeight)
-	body := lipgloss.NewStyle().Foreground(ui.ColorText).Render(strings.Join(lines[start:end], "\n"))
-	footer := lipgloss.NewStyle().Foreground(ui.ColorSubtleText).Render("[ ] month · a all · r refresh · h back · ? help · q quit")
+	var rendered []string
+	for i := start; i < end; i++ {
+		style := lipgloss.NewStyle().Foreground(ui.ColorText)
+		if i > 0 && lines[i-1] == "Recorded spending" {
+			style = style.Foreground(ui.ColorAccent).Bold(true)
+		}
+		rendered = append(rendered, style.Render(lines[i]))
+	}
+	for len(rendered) < bodyHeight {
+		rendered = append(rendered, "")
+	}
+	body := strings.Join(rendered, "\n")
+	if width >= 5 && height >= 5 {
+		body = styleBase.Width(width).Padding(0, 1).Render(body)
+	}
+	footer := m.historyFooter()
 	content := title
 	if height > 1 {
 		content += "\n" + body

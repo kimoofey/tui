@@ -437,7 +437,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if event.Button == tea.MouseWheelUp {
 					delta = -delta
 				}
-				m.history.offset = max(0, min(m.history.offset+delta, max(0, len(m.history.lines(m.width))-max(1, m.height-2))))
+				m.history.offset = max(0, min(m.history.offset+delta, m.historyMaxOffset()))
 				return m, nil
 			}
 		}

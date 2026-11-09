@@ -216,7 +216,7 @@ mutations. History initially shows the current UTC month:
 
 | Key | Action |
 | --- | --- |
-| `[` / `]` | Previous / next UTC month; from all-time, return to current month |
+| `←` / `→` or `[` / `]` | Previous / next UTC month; from all-time, return to current month |
 | `0` | Current UTC month |
 | `a` | All captured time, including usage without timestamps |
 | `r` | Start/retry pending initial import; otherwise reload/retry the source, collect and reload saved accounting |
@@ -225,10 +225,12 @@ mutations. History initially shows the current UTC month:
 | `?` | Toggle History help |
 | `q` / `ctrl+c` | Quit |
 
-History shows **Recorded USD (approximate)**, daily horizontal bars with numeric
-amounts, provider/model totals, last capture, unknown counts and saved stale/failed
-status. Unknown costs stay unknown rather than becoming zero. All-time unbucketed
-cost is included in the total and shown separately from dated bars. The current
+History highlights **Recorded USD (approximate)** for the selected month, followed
+by provider/model totals and proportional bars. Monthly views include daily amounts;
+all-time history omits daily detail. Last capture,
+unknown counts and saved stale/failed status appear further down. Unknown costs
+stay unknown rather than becoming zero. All-time unbucketed
+cost is included in the total and shown separately. The current
 month/day is partial; coverage always includes only successfully observed usage.
 No captured usage is not proof of zero spend. Failed archive queries keep the
 previous result visible with an error and its original range label.

@@ -42,12 +42,114 @@ func historyKeyTest(m Model, key string) (Model, tea.Cmd) {
 			msg = tea.KeyPressMsg{Code: tea.KeyEscape}
 		case "down":
 			msg = tea.KeyPressMsg{Code: tea.KeyDown}
+		case "left":
+			msg = tea.KeyPressMsg{Code: tea.KeyLeft}
+		case "right":
+			msg = tea.KeyPressMsg{Code: tea.KeyRight}
 		case "ctrl+c":
 			msg = tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 		}
 	}
 	next, cmd := m.Update(msg)
 	return next.(Model), cmd
+}
+
+func TestHistoryArrowMonthNavigation(t *testing.T) {
+	m := historyTestModel(&historyBackendFixture{})
+	m, _ = historyKeyTest(m, "h")
+	m, cmd := historyKeyTest(m, "right")
+	if cmd == nil || m.history.month.Format("2006-01") != "2026-01" {
+		t.Fatal("right should advance across year", m.history.month)
+	}
+	m, cmd = historyKeyTest(m, "left")
+	if cmd == nil || m.history.month.Format("2006-01") != "2025-12" {
+		t.Fatal("left should return to December", m.history.month)
+	}
+	m, _ = historyKeyTest(m, "a")
+	m, cmd = historyKeyTest(m, "left")
+	if cmd == nil || m.history.all || m.history.month.Format("2006-01") != "2025-12" {
+		t.Fatal("arrow from all-time should return to current UTC month", m.history.month)
+	}
+}
+
+func TestHistoryAllTimeOmitsDailyDetails(t *testing.T) {
+	cost := 12.5
+	name := "model"
+	m := historyTestModel(&historyBackendFixture{})
+	m.history.hasReport = true
+	m.history.all = true
+	m.history.shownRange = "All time"
+	m.history.report = history.Report{
+		Total:      history.Total{Cost: &cost, Rows: 1},
+		Days:       []history.Day{{UTC: "2025-12-31", Total: history.Total{Cost: &cost}}},
+		Models:     []history.Model{{Name: &name, Total: history.Total{Cost: &cost}}},
+		Unbucketed: 1, UnbucketedCost: &cost,
+	}
+	view := strings.Join(m.history.lines(100), "\n")
+	for _, want := range []string{"All time", "$12.50", "model", "Unbucketed timestamps: 1"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q: %s", want, view)
+		}
+	}
+	if strings.Contains(view, "Daily recorded USD") || strings.Contains(view, "2025-12-31") {
+		t.Fatal("all-time view includes daily detail", view)
+	}
+	// A retained all-time result should not flood a month while its query is pending.
+	m.history.all = false
+	if strings.Contains(strings.Join(m.history.lines(100), "\n"), "Daily recorded USD") {
+		t.Fatal("retained all-time report includes daily detail")
+	}
+	m.history.shownRange = "December 2025"
+	if !strings.Contains(strings.Join(m.history.lines(100), "\n"), "2025-12-31") {
+		t.Fatal("monthly view lost daily detail")
+	}
+}
+
+func TestHistoryFooterStaysAtBottom(t *testing.T) {
+	m := historyTestModel(&historyBackendFixture{})
+	m, _ = historyKeyTest(m, "h")
+	for _, height := range []int{8, 30} {
+		m.height = height
+		for _, offset := range []int{0, 100} {
+			m.history.offset = offset
+			view := m.historyView().Content
+			lines := strings.Split(view, "\n")
+			if len(lines) != height || !strings.Contains(lines[len(lines)-1], "month") {
+				t.Fatalf("height=%d offset=%d footer not at bottom: %q", height, offset, view)
+			}
+			if !strings.Contains(lines[0], "ocm") || !strings.Contains(lines[1], "┌") || !strings.Contains(lines[height-2], "└") {
+				t.Fatalf("history frame missing: %q", view)
+			}
+			if lipgloss.Width(lines[1]) != m.width || lipgloss.Width(lines[height-2]) != m.width {
+				t.Fatalf("history frame does not span terminal width: %q", view)
+			}
+		}
+	}
+}
+
+func TestHistoryExpandedHelpBelowFrame(t *testing.T) {
+	m := historyTestModel(&historyBackendFixture{})
+	m, _ = historyKeyTest(m, "h")
+	m, _ = historyKeyTest(m, "?")
+	view := m.historyView().Content
+	lines := strings.Split(view, "\n")
+	border := -1
+	for i, line := range lines {
+		if strings.Contains(line, "└") {
+			border = i
+			break
+		}
+	}
+	if len(lines) != m.height || border < 0 || !strings.Contains(strings.Join(lines[border+1:], "\n"), "change month") || !strings.Contains(strings.Join(lines[border+1:], "\n"), "quit") {
+		t.Fatalf("expanded help should appear below the frame: %q", view)
+	}
+	if strings.Contains(strings.Join(lines[:border], "\n"), "change month") {
+		t.Fatal("expanded help appeared inside the frame")
+	}
+	m, _ = historyKeyTest(m, "?")
+	if strings.Contains(m.historyView().Content, "quit") {
+		t.Fatal("help did not collapse")
+	}
 }
 
 func TestHistoryStartupScreenTransitions(t *testing.T) {
@@ -297,6 +399,15 @@ func TestHistoryRenderingUnknownZeroQualityAndGeometry(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatal(want, text)
 		}
+	}
+	if strings.Index(text, "Recorded spending") > strings.Index(text, "Provider / model totals") || strings.Index(text, "Provider / model totals") > strings.Index(text, "Daily recorded USD") {
+		t.Fatal("summary and models must precede daily detail", text)
+	}
+	m.history.shownRange = "November 2025"
+	m.history.queryErr = errors.New("query failed")
+	text = strings.Join(m.history.lines(100), "\n")
+	if !strings.Contains(text, "Showing previous results: November 2025") || !strings.Contains(text, "previous results retained") {
+		t.Fatal("previous results must remain clearly labeled", text)
 	}
 	for _, w := range []int{1, 8, 20, 80} {
 		for _, h := range []int{1, 2, 5, 30} {
