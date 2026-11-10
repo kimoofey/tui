@@ -246,6 +246,35 @@ func groupName(v *string) string {
 	return safeLabel(*v)
 }
 func (h historyState) lines(width int) []string {
+	return h.renderLines(width, false)
+}
+
+func (h historyState) renderLines(width int, styled bool) []string {
+	width = max(1, width)
+	content := h.contentLines(width)
+	var lines []string
+	for i, line := range content {
+		style := lipgloss.NewStyle().Foreground(ui.ColorText)
+		if i == 0 || line == "Recorded spending" || line == "Daily recorded USD" {
+			style = style.Bold(true)
+		}
+		if i > 0 && content[i-1] == "" && strings.HasPrefix(line, "Provider  ") {
+			style = style.Bold(true)
+		}
+		if i > 0 && content[i-1] == "Recorded spending" {
+			style = style.Foreground(ui.ColorAccent).Bold(true)
+		}
+		for _, part := range wrapHistoryLines([]string{line}, width) {
+			if styled {
+				part = style.Render(part)
+			}
+			lines = append(lines, part)
+		}
+	}
+	return lines
+}
+
+func (h historyState) contentLines(width int) []string {
 	width = max(1, width)
 	label := h.month.Format("January 2006")
 	if h.all {
@@ -258,7 +287,7 @@ func (h historyState) lines(width int) []string {
 	if h.all || utcMonth(h.now()).Equal(h.month) {
 		lines = append(lines, "Current month/day is partial.")
 	}
-	status := "Idle"
+	status := ""
 	if h.collection.Running || h.refreshing {
 		status = "Collecting / refreshing…"
 	}
@@ -267,7 +296,9 @@ func (h historyState) lines(width int) []string {
 	} else if h.collection.Err != nil {
 		status = "Capture failed / unsupported: " + safeLabel(h.collection.Err.Error())
 	}
-	lines = append(lines, status)
+	if status != "" {
+		lines = append(lines, status)
+	}
 	if h.diagnosticsWarning != "" {
 		lines = append(lines, h.diagnosticsWarning)
 	}
@@ -278,16 +309,14 @@ func (h historyState) lines(width int) []string {
 		lines = append(lines, "Query failed; previous results retained: "+safeLabel(h.queryErr.Error()))
 	}
 	if !h.hasReport {
-		return wrapHistoryLines(append(lines, "No captured usage loaded"), width)
+		return append(lines, "No captured usage loaded")
 	}
 	r := h.report
 	if h.shownRange != label {
 		lines = append(lines, "Showing previous results: "+h.shownRange)
 	}
-	var last int64
 	stale, failed := 0, 0
 	for _, s := range r.Sessions {
-		last = max(last, s.Captured)
 		if s.Status != "" {
 			if strings.Contains(s.Status, "source records removed") {
 				stale++
@@ -296,12 +325,21 @@ func (h historyState) lines(width int) []string {
 			}
 		}
 	}
-	captured := "never"
-	if len(r.Sessions) > 0 {
-		captured = time.UnixMilli(last).UTC().Format("2006-01-02 15:04:05 UTC")
+	lines = append(lines, "", "Recorded spending", historyAmount(r.Cost))
+	var unknown []string
+	if r.UnknownCost > 0 {
+		unknown = append(unknown, fmt.Sprintf("%d cost", r.UnknownCost))
 	}
-	lines = append(lines, "", "Recorded spending", historyAmount(r.Cost),
-		fmt.Sprintf("Unknown: %d cost · %d provider · %d model", r.UnknownCost, r.UnknownProvider, r.UnknownModel), "", "Provider / model totals")
+	if r.UnknownProvider > 0 {
+		unknown = append(unknown, fmt.Sprintf("%d provider", r.UnknownProvider))
+	}
+	if r.UnknownModel > 0 {
+		unknown = append(unknown, fmt.Sprintf("%d model", r.UnknownModel))
+	}
+	if len(unknown) > 0 {
+		lines = append(lines, "Unknown: "+strings.Join(unknown, " · "))
+	}
+	lines = append(lines, "")
 	models := append([]history.Model(nil), r.Models...)
 	sort.SliceStable(models, func(i, j int) bool {
 		if models[i].Cost == nil || math.IsNaN(*models[i].Cost) || math.IsInf(*models[i].Cost, 0) {
@@ -312,20 +350,18 @@ func (h historyState) lines(width int) []string {
 		}
 		return *models[i].Cost > *models[j].Cost
 	})
-	maximumModel := 0.0
-	for _, model := range models {
-		if model.Cost != nil && !math.IsNaN(*model.Cost) && !math.IsInf(*model.Cost, 0) {
-			maximumModel = math.Max(maximumModel, *model.Cost)
-		}
+	lines = append(lines, historyModelTable(models, width)...)
+	lines = append(lines, "", "Coverage limited to successfully observed usage.")
+	var savedStatus []string
+	if stale > 0 {
+		savedStatus = append(savedStatus, fmt.Sprintf("%d stale", stale))
 	}
-	for _, model := range models {
-		bar := ""
-		if maximumModel > 0 && model.Cost != nil && !math.IsNaN(*model.Cost) && !math.IsInf(*model.Cost, 0) && *model.Cost > 0 {
-			bar = strings.Repeat("█", int(*model.Cost/maximumModel*float64(max(0, min(20, width-30)))))
-		}
-		lines = append(lines, fmt.Sprintf("%s · %s  %s %s (%d unknown costs)", groupName(model.Provider), groupName(model.Name), historyAmount(model.Cost), bar, model.UnknownCost))
+	if failed > 0 {
+		savedStatus = append(savedStatus, fmt.Sprintf("%d failed", failed))
 	}
-	lines = append(lines, "", "Coverage limited to successfully observed usage.", "Last capture: "+captured, fmt.Sprintf("Saved status: %d stale · %d failed", stale, failed))
+	if len(savedStatus) > 0 {
+		lines = append(lines, "Saved status: "+strings.Join(savedStatus, " · "))
+	}
 	if stale > 0 {
 		lines = append(lines, "Stale: source records removed or known fields lost; saved usage retained.")
 	}
@@ -337,7 +373,9 @@ func (h historyState) lines(width int) []string {
 	} else if r.Rows == 0 {
 		lines = append(lines, "No captured usage in this range")
 	}
-	lines = append(lines, fmt.Sprintf("Unbucketed timestamps: %d · %s (all-time only)", r.Unbucketed, historyAmount(r.UnbucketedCost)))
+	if r.Unbucketed > 0 {
+		lines = append(lines, fmt.Sprintf("Unbucketed timestamps: %d · %s (all-time only)", r.Unbucketed, historyAmount(r.UnbucketedCost)))
+	}
 	if !h.all && h.shownRange != "All time" {
 		lines = append(lines, "", "Daily recorded USD")
 		maximum, allMaximum := 0.0, 0.0
@@ -377,11 +415,98 @@ func (h historyState) lines(width int) []string {
 			lines = append(lines, row)
 		}
 	}
-	// Wrap metadata rather than truncate it: unknown/error/quality information
-	// remains accessible by scrolling on narrow terminals.
-	return wrapHistoryLines(lines, width)
+	return lines
 }
+
+// historyModelTable shares the page's scrolling rather than introducing a second
+// focusable viewport. Only name columns wrap; numeric columns stay intact.
+func historyModelTable(models []history.Model, width int) []string {
+	if len(models) == 0 {
+		return nil
+	}
+	headers := []string{"Provider", "Model", "Recorded USD"}
+	for _, model := range models {
+		if model.UnknownCost > 0 {
+			headers = append(headers, "Unknown costs")
+			break
+		}
+	}
+	rows := [][]string{headers}
+	widths := make([]int, len(headers))
+	for i, header := range headers {
+		widths[i] = lipgloss.Width(header)
+	}
+	for _, model := range models {
+		row := []string{groupName(model.Provider), groupName(model.Name), historyAmount(model.Cost)}
+		if len(headers) == 4 {
+			count := ""
+			if model.UnknownCost > 0 {
+				count = fmt.Sprint(model.UnknownCost)
+			}
+			row = append(row, count)
+		}
+		rows = append(rows, row)
+		for i, cell := range row {
+			widths[i] = max(widths[i], lipgloss.Width(cell))
+		}
+	}
+	const gap = "  "
+	availableNames := width - len(gap)*(len(headers)-1)
+	for _, w := range widths[2:] {
+		availableNames -= w
+	}
+	if availableNames < len(headers[0])+len(headers[1]) {
+		var lines []string
+		for _, row := range rows[1:] {
+			if len(lines) > 0 {
+				lines = append(lines, "")
+			}
+			for i, cell := range row {
+				if cell != "" || i < 3 {
+					lines = append(lines, headers[i]+": "+cell)
+				}
+			}
+		}
+		return wrapHistoryLines(lines, max(1, width))
+	}
+	// Bound names to the viewport, then shrink the column with more spare room.
+	widths[0], widths[1] = min(widths[0], availableNames), min(widths[1], availableNames)
+	for widths[0]+widths[1] > availableNames {
+		i := 0
+		if widths[1]-len(headers[1]) > widths[0]-len(headers[0]) {
+			i = 1
+		}
+		widths[i]--
+	}
+	var lines []string
+	for _, row := range rows {
+		cells := make([][]string, len(row))
+		height := 1
+		for i, cell := range row {
+			cells[i] = strings.Split(lipgloss.NewStyle().Width(widths[i]).Render(cell), "\n")
+			height = max(height, len(cells[i]))
+		}
+		for line := 0; line < height; line++ {
+			parts := make([]string, len(row))
+			for i := range row {
+				cell := ""
+				if line < len(cells[i]) {
+					cell = strings.TrimRight(cells[i][line], " ")
+				}
+				style := lipgloss.NewStyle().Width(widths[i])
+				if i >= 2 {
+					style = style.Align(lipgloss.Right)
+				}
+				parts[i] = style.Render(cell)
+			}
+			lines = append(lines, strings.TrimRight(strings.Join(parts, gap), " "))
+		}
+	}
+	return lines
+}
+
 func wrapHistoryLines(lines []string, width int) []string {
+	// Wrap metadata rather than truncate it so it remains accessible by scrolling.
 	var wrapped []string
 	for _, line := range lines {
 		parts := strings.Split(lipgloss.NewStyle().Width(width).Render(safeLabel(line)), "\n")
@@ -410,21 +535,38 @@ func (m Model) historyFooter() string {
 	return lipgloss.NewStyle().MaxHeight(maxHeight).Render(footer)
 }
 
+func (m Model) historyTitleBar() string {
+	left := lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true).Render("ocm") + "  " + lipgloss.NewStyle().Foreground(ui.ColorText).Render("History · Recorded USD (approximate)")
+	innerWidth := max(1, m.width-2)
+	if m.history.hasReport {
+		captured := "never"
+		if len(m.history.report.Sessions) > 0 {
+			var last int64
+			for _, s := range m.history.report.Sessions {
+				last = max(last, s.Captured)
+			}
+			captured = time.UnixMilli(last).UTC().Format("2006-01-02 15:04:05 UTC")
+		}
+		right := "Last capture: " + captured
+		// Keep the title on one line; omit archive metadata when it cannot fit.
+		if innerWidth-lipgloss.Width(left) >= lipgloss.Width(right)+2 {
+			left += lipgloss.PlaceHorizontal(innerWidth-lipgloss.Width(left), lipgloss.Right, lipgloss.NewStyle().Foreground(ui.ColorText).Render(right))
+		}
+	}
+	return ui.TitleBarStyle().Render(lipgloss.NewStyle().MaxWidth(innerWidth).Render(left))
+}
+
 func (m Model) historyView() tea.View {
 	width := max(1, m.width)
 	height := max(1, m.height)
-	title := ui.TitleBarStyle().Render(lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true).Render("ocm") + "  " + lipgloss.NewStyle().Foreground(ui.ColorText).Render("History · Recorded USD (approximate)"))
+	title := m.historyTitleBar()
 	bodyWidth, bodyHeight := m.historyBodySize()
-	lines := m.history.lines(bodyWidth)
+	lines := m.history.renderLines(bodyWidth, true)
 	start := min(m.history.offset, max(0, len(lines)-bodyHeight))
 	end := min(len(lines), start+bodyHeight)
 	var rendered []string
 	for i := start; i < end; i++ {
-		style := lipgloss.NewStyle().Foreground(ui.ColorText)
-		if i > 0 && lines[i-1] == "Recorded spending" {
-			style = style.Foreground(ui.ColorAccent).Bold(true)
-		}
-		rendered = append(rendered, style.Render(lines[i]))
+		rendered = append(rendered, lines[i])
 	}
 	for len(rendered) < bodyHeight {
 		rendered = append(rendered, "")

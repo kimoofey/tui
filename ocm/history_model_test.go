@@ -395,12 +395,15 @@ func TestHistoryRenderingUnknownZeroQualityAndGeometry(t *testing.T) {
 	m.history.shownRange = "December 2025"
 	m.history.report = history.Report{Total: history.Total{Cost: &zero, Rows: 2, UnknownCost: 1}, Days: []history.Day{{UTC: "2025-12-31", Total: history.Total{Cost: &zero, Rows: 1}}}, Models: []history.Model{{Name: &name, Total: history.Total{Rows: 1, UnknownCost: 1}}}, Sessions: []history.SessionStatus{{ID: "s", Captured: 1}}, Unbucketed: 1, ApproximateV1: true}
 	text := strings.Join(m.history.lines(100), "\n")
-	for _, want := range []string{"$0.00", "unknown", "Unbucketed timestamps: 1", "Approximate: V1", "Last capture:", "UTC"} {
+	for _, want := range []string{"$0.00", "unknown", "Unbucketed timestamps: 1", "Approximate: V1", "UTC"} {
 		if !strings.Contains(text, want) {
 			t.Fatal(want, text)
 		}
 	}
-	if strings.Index(text, "Recorded spending") > strings.Index(text, "Provider / model totals") || strings.Index(text, "Provider / model totals") > strings.Index(text, "Daily recorded USD") {
+	if strings.Contains(text, "Last capture:") || !strings.Contains(m.historyTitleBar(), "Last capture: 1970-01-01 00:00:00 UTC") {
+		t.Fatal("archive capture time must appear in the title bar instead of the body")
+	}
+	if strings.Index(text, "Recorded spending") > strings.Index(text, "Provider  ") || strings.Index(text, "Provider  ") > strings.Index(text, "Daily recorded USD") {
 		t.Fatal("summary and models must precede daily detail", text)
 	}
 	m.history.shownRange = "November 2025"
@@ -423,6 +426,94 @@ func TestHistoryRenderingUnknownZeroQualityAndGeometry(t *testing.T) {
 	m.history.report = history.Report{}
 	if !strings.Contains(strings.Join(m.history.lines(80), "\n"), "No captured usage") {
 		t.Fatal("empty history fabricated zero")
+	}
+}
+
+func TestHistoryModelTableCountsAndAlignment(t *testing.T) {
+	provider, short, long := "provider", "short", "模型-long"
+	zero, cost := 0.0, 12.34
+	models := []history.Model{
+		{Provider: &provider, Name: &short, Total: history.Total{Cost: &zero}},
+		{Provider: &provider, Name: &long, Total: history.Total{Cost: &cost}},
+		{},
+	}
+	lines := historyModelTable(models, 100)
+	text := strings.Join(lines, "\n")
+	if len(lines) != 4 || strings.Contains(text, "Unknown costs") || strings.Contains(text, "unknown costs") || strings.Contains(text, "█") {
+		t.Fatalf("unexpected table: %s", text)
+	}
+	for i, amount := range []string{"Recorded USD", "$0.00", "$12.34", "unknown"} {
+		if !strings.HasSuffix(lines[i], amount) || lipgloss.Width(lines[i]) != lipgloss.Width(lines[0]) {
+			t.Fatalf("amounts must align at the right: %q", lines)
+		}
+	}
+	if !strings.Contains(text, "(unknown)") {
+		t.Fatal("missing names must remain unknown", text)
+	}
+	models[1].UnknownCost = 2
+	lines = historyModelTable(models, 100)
+	if !strings.Contains(lines[0], "Unknown costs") || !strings.HasSuffix(lines[2], "2") {
+		t.Fatal("nonzero unknown count missing", lines)
+	}
+	if !strings.HasSuffix(lines[1], "$0.00") || !strings.HasSuffix(lines[3], "unknown") {
+		t.Fatal("zero unknown counts must be blank", lines)
+	}
+	if got := historyModelTable(nil, 100); len(got) != 0 {
+		t.Fatal("empty models must not render a table", got)
+	}
+}
+
+func TestHistoryModelTableWrappingAndFallback(t *testing.T) {
+	provider := strings.Repeat("供給", 15)
+	name := strings.Repeat("模型", 20)
+	cost := 1234.56
+	models := []history.Model{{Provider: &provider, Name: &name, Total: history.Total{Cost: &cost, UnknownCost: 3}}}
+	for _, width := range []int{2, 8, 20, 43, 44, 60, 100} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			lines := historyModelTable(models, width)
+			for _, line := range lines {
+				if lipgloss.Width(line) > width {
+					t.Fatalf("line exceeds width %d: %q", width, line)
+				}
+			}
+			compact := strings.Join(strings.Fields(strings.Join(lines, "\n")), "")
+			for _, want := range []string{"$1234.56", "3"} {
+				if !strings.Contains(compact, want) {
+					t.Fatalf("wrapped table lost %q: %s", want, compact)
+				}
+			}
+			// Wrapped provider and model cells occupy the same physical lines.
+			// Count their characters to ensure both names survive in full.
+			for _, char := range []string{"供", "給", "模", "型"} {
+				if strings.Count(compact, char) != strings.Count(provider+name, char) {
+					t.Fatal("wrapped table lost name characters", compact)
+				}
+			}
+			if width < 44 && !strings.Contains(compact, "Provider:") {
+				t.Fatal("narrow table must use labeled rows", compact)
+			}
+		})
+	}
+}
+
+func TestHistoryModelTotalsSortedWithoutBars(t *testing.T) {
+	lowName, highName, unknownName := "low-model", "high-model", "unknown-model"
+	low, high := 0.0, 20.0
+	h := historyTestModel(&historyBackendFixture{}).history
+	h.hasReport = true
+	h.report.Models = []history.Model{
+		{Name: &lowName, Total: history.Total{Cost: &low}},
+		{Name: &unknownName},
+		{Name: &highName, Total: history.Total{Cost: &high}},
+	}
+	h.report.Days = []history.Day{{UTC: "2025-12-01", Total: history.Total{Cost: &high}}}
+	text := strings.Join(h.lines(100), "\n")
+	models := strings.Split(strings.Split(text, "Provider  ")[1], "Coverage limited")[0]
+	if strings.Index(models, highName) > strings.Index(models, lowName) || strings.Index(models, lowName) > strings.Index(models, unknownName) {
+		t.Fatal("models must sort by descending cost with unknown last", models)
+	}
+	if strings.Contains(models, "█") || strings.Contains(models, "unknown costs") || !strings.Contains(text, "█") {
+		t.Fatal("only daily detail should retain bars", text)
 	}
 }
 

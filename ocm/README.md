@@ -226,11 +226,19 @@ mutations. History initially shows the current UTC month:
 | `q` / `ctrl+c` | Quit |
 
 History highlights **Recorded USD (approximate)** for the selected month, followed
-by provider/model totals and proportional bars. Monthly views include daily amounts;
-all-time history omits daily detail. Last capture,
-unknown counts and saved stale/failed status appear further down. Unknown costs
-stay unknown rather than becoming zero. All-time unbucketed
-cost is included in the total and shown separately. The current
+by a provider/model table with recorded USD totals. Unknown-cost counts appear in
+an additional column only when nonzero; narrow terminals use wrapped, labeled rows.
+The date, section headings and table column labels are bold for easier scanning.
+The column labels introduce the table without a separate heading.
+Collection status appears only while collecting/refreshing or when an error occurs.
+Monthly views include daily amounts and proportional bars;
+all-time history omits daily detail. The archive-wide last capture time appears
+at the top right when space permits. Unknown counts and saved stale/failed status
+appear further down. Unknown, stale
+and failed counts are shown only when nonzero. Unknown costs stay unknown rather
+than becoming zero.
+All-time unbucketed cost is included in the total and shown separately only when
+usage with missing timestamps exists. The current
 month/day is partial; coverage always includes only successfully observed usage.
 No captured usage is not proof of zero spend. Failed archive queries keep the
 previous result visible with an error and its original range label.
