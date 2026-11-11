@@ -12,6 +12,10 @@ Interactive TUI for your GitHub PR review queue. Surfaces PRs waiting for your a
 
 A second tab — **My PRs** — shows open PRs you authored, with their review status.
 
+In both tabs, **Repo** shows the repository name without its owner. Its column
+expands from 16 to 24 characters as terminal space permits, reserving 32 characters
+for the PR title before expanding. Longer names are truncated with an ellipsis.
+
 In the review tab, **Pending** shows time since the most recent review request event
 (falls back to PR creation time when no review-request event is available).
 

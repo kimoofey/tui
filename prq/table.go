@@ -12,31 +12,38 @@ import (
 
 const (
 	widthSource   = 8
-	widthRepo     = 16
+	minRepoWidth  = 16
+	maxRepoWidth  = 24
 	widthAuthor   = 27
 	widthPending  = 7
 	widthReview   = 9
 	widthEstimate = 8
 
 	minTitleWidth = 12
+	// Give titles a readable budget before expanding the repository column.
+	preferredTitleWidth = 32
 
 	numCols = 7
 
-	tableFixedWidth = widthSource + widthRepo +
+	tableFixedWidth = widthSource +
 		widthAuthor + widthPending + widthReview + widthEstimate + numCols*2
 
 	borderWidth = 2
 )
 
+func repoWidth(termWidth, fixedWidth int) int {
+	return min(max(termWidth-fixedWidth-2-preferredTitleWidth, minRepoWidth), maxRepoWidth)
+}
+
 func titleWidth(termWidth int) int {
-	w := max(termWidth-tableFixedWidth-2, minTitleWidth)
+	w := max(termWidth-tableFixedWidth-repoWidth(termWidth, tableFixedWidth)-2, minTitleWidth)
 	return w
 }
 
 func makeColumns(termWidth int) []table.Column {
 	return []table.Column{
 		{Title: "Source", Width: widthSource},
-		{Title: "Repo", Width: widthRepo},
+		{Title: "Repo", Width: repoWidth(termWidth, tableFixedWidth)},
 		{Title: "Title", Width: titleWidth(termWidth)},
 		{Title: "Author", Width: widthAuthor},
 		{Title: "Pending", Width: widthPending},
@@ -64,7 +71,7 @@ func PRsToRows(prs []PullRequest, estimateBuckets []int) []table.Row {
 	for i, pr := range prs {
 		rows[i] = table.Row{
 			bucketLabel(pr.Bucket),
-			ui.Truncate(pr.RepoShort(), widthRepo),
+			pr.RepoShort(),
 			pr.Title,
 			"@" + ui.Truncate(pr.Author, widthAuthor-1),
 			waitCell(pr),
@@ -94,18 +101,18 @@ const (
 
 	numMyCols = 5
 
-	myTableFixedWidth = widthSource + widthRepo + widthPending + widthMyReview + numMyCols*2
+	myTableFixedWidth = widthSource + widthPending + widthMyReview + numMyCols*2
 )
 
 func myTitleWidth(termWidth int) int {
-	w := max(termWidth-myTableFixedWidth-2, minTitleWidth)
+	w := max(termWidth-myTableFixedWidth-repoWidth(termWidth, myTableFixedWidth)-2, minTitleWidth)
 	return w
 }
 
 func makeMyColumns(termWidth int) []table.Column {
 	return []table.Column{
 		{Title: "Status", Width: widthSource},
-		{Title: "Repo", Width: widthRepo},
+		{Title: "Repo", Width: repoWidth(termWidth, myTableFixedWidth)},
 		{Title: "Title", Width: myTitleWidth(termWidth)},
 		{Title: "Age", Width: widthPending},
 		{Title: "Review", Width: widthMyReview},
@@ -162,7 +169,7 @@ func MyPRsToRows(prs []PullRequest) []table.Row {
 	for i, pr := range prs {
 		rows[i] = table.Row{
 			draftLabel(pr.IsDraft),
-			ui.Truncate(pr.RepoShort(), widthRepo),
+			pr.RepoShort(),
 			pr.Title,
 			pr.Age(),
 			reviewDecisionLabel(pr.ReviewDecision),

@@ -1,9 +1,77 @@
 package prq
 
 import (
+	"strings"
 	"testing"
 	"time"
+
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
 )
+
+func TestResponsiveColumns(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		columns    func(int) []table.Column
+		termWidth  int
+		repoWidth  int
+		titleWidth int
+	}{
+		{"review narrow", makeColumns, 80, 16, 12},
+		{"review compact", makeColumns, 120, 16, 27},
+		{"review growing", makeColumns, 128, 19, 32},
+		{"review expanded", makeColumns, 136, 24, 35},
+		{"review wide", makeColumns, 160, 24, 59},
+		{"my compact", makeMyColumns, 80, 16, 27},
+		{"my growing", makeMyColumns, 88, 19, 32},
+		{"my expanded", makeMyColumns, 96, 24, 35},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cols := tt.columns(tt.termWidth - borderWidth)
+			if cols[1].Width != tt.repoWidth || cols[2].Width != tt.titleWidth {
+				t.Fatalf("repo/title widths = %d/%d; want %d/%d", cols[1].Width, cols[2].Width, tt.repoWidth, tt.titleWidth)
+			}
+		})
+	}
+}
+
+func TestRepoColumnResize(t *testing.T) {
+	for _, tab := range []int{0, 1} {
+		t.Run([]string{"review", "my"}[tab], func(t *testing.T) {
+			longRepo := strings.Repeat("r", 24)
+			prs := []PullRequest{
+				{Repo: "owner/short", URL: "https://example.com/1"},
+				{Repo: "owner/" + longRepo, URL: "https://example.com/2"},
+			}
+			m := Model{
+				table:     table.New(table.WithColumns(makeColumns(80))),
+				reviewPRs: prs, myPRs: prs, currentTab: tab,
+				cfg: defaultConfig(),
+			}
+			for step, width := range []int{80, 160, 80} {
+				updated, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
+				m = updated.(Model)
+				if m.table.Rows()[1][1] != longRepo {
+					t.Fatal("repo name was truncated before rendering")
+				}
+				want := longRepo
+				if width == 80 {
+					want = strings.Repeat("r", 15) + "…"
+				}
+				if !strings.Contains(m.table.View(), want) {
+					t.Fatalf("at width %d, repo column does not show %q", width, want)
+				}
+				if width == 80 && strings.Contains(m.table.View(), longRepo) {
+					t.Fatal("narrow column did not truncate the repo name")
+				}
+				if step > 0 && m.table.Cursor() != 1 {
+					t.Fatal("resize did not preserve selection")
+				}
+				m.table.SetCursor(1)
+			}
+		})
+	}
+}
 
 func TestBucketLabel(t *testing.T) {
 	tests := []struct {
